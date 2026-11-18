@@ -6,6 +6,7 @@
 <title>Medidor de cápsulas — Cryptococcus</title>
 <script src="lib/pako.min.js"></script>
 <script src="lib/UTIF.js"></script>
+<script src="lib/xlsx.full.min.js" defer></script>
 <style>
 :root{
   --bg:#f5f6f4; --panel:#ffffff; --ink:#1d2321; --muted:#66706c; --line:#dfe3e0;
@@ -193,7 +194,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     <span class="sp"></span>
     <button id="dlPng">Baixar gráfico (PNG)</button>
     <button id="dlSvg">Baixar gráfico (SVG)</button>
-    <button id="dlCsv">Baixar planilha (Excel)</button>
+    <button id="dlCsv">⬇ Baixar planilha (Excel)</button>
   </div>
   <div class="controls">
     <label>Medida <select id="metric">
@@ -201,6 +202,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
       <option value="dBody">Diâmetro da célula</option>
       <option value="dTot">Diâmetro cápsula + célula</option>
       <option value="ratio">Razão (cápsula + célula) / célula</option>
+      <option value="vcap">Volume capsular</option>
     </select></label>
   </div>
   <div class="chartcard">
@@ -1128,9 +1130,10 @@ const METRICS={
   thick:{label:'Espessura da cápsula',unit:true,get:c=>toU(c.thick)},
   dBody:{label:'Diâmetro da célula',unit:true,get:c=>toU(c.dBody)},
   dTot:{label:'Diâmetro cápsula + célula',unit:true,get:c=>toU(c.dTot)},
-  ratio:{label:'Razão (cápsula + célula) / célula',unit:false,get:c=>c.dTot/c.dBody}
+  ratio:{label:'Razão (cápsula + célula) / célula',unit:false,get:c=>c.dTot/c.dBody},
+  vcap:{label:'Volume capsular',unit:true,cube:true,get:c=>VOL(toU(c.dTot))-VOL(toU(c.dBody))}
 };
-function metricLabel(m){ return METRICS[m].label+(METRICS[m].unit?` (${unit()})`:''); }
+function metricLabel(m){ return METRICS[m].label+(METRICS[m].unit?` (${unit()}${METRICS[m].cube?'³':''})`:''); }
 function collectGroups(metric){
   const order=[], map=new Map();
   S.images.forEach((im,ii)=>{
@@ -1237,7 +1240,7 @@ function renderCompare(){
   $('chart').querySelectorAll('.pt').forEach(el=>{
     const p=groups[+el.dataset.g].pts[+el.dataset.p];
     el.addEventListener('mousemove',ev=>{ el.setAttribute('r','6'); el.setAttribute('fill-opacity','1');
-      showTip(ev,`<b>${esc(groups[+el.dataset.g].name)}</b><br>${esc(p.name)} · célula ${p.n}<br><span class="k">${esc(METRICS[metric].label)}:</span> <b>${fmt(p.v)}${METRICS[metric].unit?' '+unit():''}</b><br><span class="k" style="font-size:11.5px">clique para abrir a imagem</span>`); });
+      showTip(ev,`<b>${esc(groups[+el.dataset.g].name)}</b><br>${esc(p.name)} · célula ${p.n}<br><span class="k">${esc(METRICS[metric].label)}:</span> <b>${fmt(p.v)}${METRICS[metric].unit?' '+unit()+(METRICS[metric].cube?'³':''):''}</b><br><span class="k" style="font-size:11.5px">clique para abrir a imagem</span>`); });
     el.addEventListener('mouseleave',()=>{ el.setAttribute('r','4'); el.setAttribute('fill-opacity','0.55'); tip.style.display='none'; });
     el.addEventListener('click',async()=>{ tip.style.display='none'; await selectImage(p.img); S.hover=p.i; draw(); stage.scrollIntoView({behavior:'smooth',block:'center'}); });
   });
@@ -1247,7 +1250,7 @@ function renderCompare(){
   else if(!kw) $('testline').innerHTML='<span class="k">Cada grupo precisa de pelo menos 2 células para o teste.</span>';
   else $('testline').innerHTML=`<b>${kw.test}</b> <span class="k">(${kw.test==='Mann-Whitney'?'bilateral, aproximação normal':`H = ${fmt(kw.H)}, gl = ${kw.df}`}):</span> <b>p = ${fmtP(kw.p)}</b> <span class="k">· ${kw.p<0.05?'diferença entre os grupos (p &lt; 0,05)':'sem diferença significativa (p ≥ 0,05)'}${groups.length>2&&kw.p<0.05?' · para saber quais pares diferem, use um teste post-hoc (ex.: Dunn)':''}</span>`;
   // tabela por grupo
-  const u=METRICS[metric].unit?` (${unit()})`:'';
+  const u=METRICS[metric].unit?` (${unit()}${METRICS[metric].cube?'³':''})`:'';
   gth.innerHTML=`<tr><th>Grupo</th><th>n células</th><th>Imagens</th><th>Média${u}</th><th>DP</th><th>Mediana</th><th>Q1</th><th>Q3</th><th>Mín.</th><th>Máx.</th></tr>`;
   gtb.innerHTML=groups.map(g=>{ const st=summary(g.pts.map(p=>p.v)), ni=new Set(g.pts.map(p=>p.img)).size;
     return `<tr><td>${esc(g.name)}</td><td style="text-align:right">${st.n}</td><td>${ni}</td><td>${fmt(st.mean)}</td><td>${fmt(st.sd)}</td><td>${fmt(st.med)}</td><td>${fmt(st.q1)}</td><td>${fmt(st.q3)}</td><td>${fmt(st.min)}</td><td>${fmt(st.max)}</td></tr>`; }).join('');
@@ -1279,9 +1282,54 @@ function tableText(sep,comma,imgs){
   return lines;
 }
 $('dlCsv2').onclick=()=>$('dlCsv').click();
+const VOL=d=>(4*3.14/3)*Math.pow(d/2,3);   // mesma fórmula da planilha do laboratório (π = 3,14)
+function safeSheetName(n,used){
+  let b=String(n).replace(/[\[\]:*?\/\\]/g,'-').slice(0,31)||'Grupo', k=b, i=2;
+  while(used.has(k.toLowerCase())){ const suf=' ('+(i++)+')'; k=b.slice(0,31-suf.length)+suf; }
+  used.add(k.toLowerCase()); return k;
+}
+function buildXlsx(){
+  if(typeof XLSX==='undefined'){ alertBox('O gerador de Excel ainda está carregando. Tente de novo em alguns segundos.'); return null; }
+  const u=unit(), r3=v=>Math.round(v*1000)/1000;
+  const groups=new Map();
+  S.images.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return; const g=groupOf(im); if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(r); }));
+  const wb=XLSX.utils.book_new(), used=new Set();
+  const heads=[`Diametro da célula`,`Volume da célula`,`Diâmetro cápsula`,`Diâmetro célula+cápsula`,`Volume célula+cápsula`,`Volume capsular`,`média do volume capsular`];
+  for(const [g,rows] of groups){
+    const ws={}, n=rows.length, last=2+n, cols='ABCDEFG';
+    ws.A1={t:'s',v:`${g} - N= ${n}`};
+    heads.forEach((h,k)=>ws[cols[k]+'2']={t:'s',v:h});
+    let sumF=0;
+    rows.forEach((r,i)=>{
+      const R=3+i, a=r3(toU(r.c.dBody)), d=r3(toU(r.c.dTot)), c=r3(d-a), vB=VOL(a), vE=VOL(a+c);
+      sumF+=vE-vB;
+      ws['A'+R]={t:'n',v:a,z:'0.000'};
+      ws['B'+R]={t:'n',f:`(4*3.14/3)*(A${R}/2)^3`,v:vB,z:'0.000'};
+      ws['C'+R]={t:'n',v:c,z:'0.000'};
+      ws['D'+R]={t:'n',f:`A${R}+C${R}`,v:a+c,z:'0.000'};
+      ws['E'+R]={t:'n',f:`(4*3.14/3)*(D${R}/2)^3`,v:vE,z:'0.000'};
+      ws['F'+R]={t:'n',f:`E${R}-B${R}`,v:vE-vB,z:'0.000'};
+    });
+    if(n) ws.G3={t:'n',f:`AVERAGE(F3:F${last})`,v:sumF/n,z:'0.000'};
+    ws['!ref']=`A1:G${Math.max(last,3)}`;
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}}];
+    ws['!cols']=[18,16,16,22,20,16,24].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,safeSheetName(g,used));
+  }
+  // aba de conferência: de qual imagem e célula veio cada linha
+  const det=[['Grupo','Imagem','Nº da célula (no site)',`Diâmetro da célula (${u})`,`Diâmetro célula+cápsula (${u})`,`Diâmetro cápsula = total − célula (${u})`,`Espessura da cápsula (${u})`,`Célula eixo maior (${u})`,`Célula eixo menor (${u})`,`Célula+cápsula eixo maior (${u})`,`Célula+cápsula eixo menor (${u})`,'Origem']];
+  for(const [g,rows] of groups) rows.forEach(r=>{ const A=r.c.auto2;
+    det.push([g,r.img,r.n,r3(toU(r.c.dBody)),r3(toU(r.c.dTot)),r3(r3(toU(r.c.dTot))-r3(toU(r.c.dBody))),r3(toU(r.c.thick)),A?r3(toU(r.c.celMaj)):'',A?r3(toU(r.c.celMin)):'',A?r3(toU(r.c.capMaj)):'',A?r3(toU(r.c.capMin)):'',
+      r.c.adjusted?'automática ajustada à mão':r.c.manual?'linhas (manual)':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')']); });
+  const wd=XLSX.utils.aoa_to_sheet(det); wd['!cols']=det[0].map((h,k)=>({wch:k<2?22:18}));
+  XLSX.utils.book_append_sheet(wb,wd,safeSheetName('Conferência',used));
+  if(!groups.size) return null;
+  return XLSX.write(wb,{type:'array',bookType:'xlsx'});
+}
+function alertBox(msg){ $('copied').textContent=msg; setTimeout(()=>$('copied').textContent='',5000); }
 $('dlCsv').onclick=()=>{
-  const comma=$('comma').checked, lines=tableText(comma?';':',',comma,S.images);
-  download(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),`medidas-capsula-${stamp()}.csv`);
+  const out=buildXlsx(); if(!out){ if(typeof XLSX!=='undefined') alertBox('Nenhuma célula medida ainda.'); return; }
+  download(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`volume-capsular-${stamp()}.xlsx`);
 };
 $('copyBtn').onclick=async()=>{
   const imgs=S.tableAll?S.images:(S.cur>=0?[S.images[S.cur]]:[]);
