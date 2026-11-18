@@ -51,8 +51,10 @@ button.primary.on{background:#5b4bc4;border-color:#5b4bc4;color:#fff}
 .toolbar .sp{flex:1}
 .legend{display:flex;gap:12px;font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
-#stage{position:relative;background:var(--stage);border-radius:var(--radius);overflow:auto;height:min(72vh,780px);min-height:320px}
-#stage canvas{display:block;image-rendering:auto;cursor:crosshair}
+#stage{position:relative;background:var(--stage);border-radius:var(--radius);overflow:hidden;height:min(74vh,820px);min-height:340px;touch-action:none}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+#zoomLbl{min-width:52px;text-align:center;font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted)}
+#navhint{position:absolute;left:10px;bottom:8px;color:#aab4b0;font-size:11.5px;background:rgba(0,0,0,.45);padding:3px 8px;border-radius:6px;pointer-events:none}
 #empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9aa5a0;text-align:center;padding:20px;pointer-events:none}
 #tip{position:fixed;pointer-events:none;background:rgba(20,24,22,.94);color:#fff;border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.5;display:none;z-index:10;box-shadow:0 4px 18px rgba(0,0,0,.3);font-variant-numeric:tabular-nums;min-width:190px}
 #tip b{font-weight:600}
@@ -153,8 +155,9 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
       <span class="sp"></span>
       <button id="markBtn" class="primary" title="Medir traçando linhas, como no ImageJ">📏 Medir com linhas</button>
       <span class="seg">
-        <button id="zFit" class="on">Ajustar</button><button id="z1">100%</button><button id="z2">200%</button>
+        <button id="zOut" title="Diminuir zoom (tecla −)">−</button><button id="zFit" title="Ajustar à tela (tecla 0)">Ajustar</button><button id="zIn" title="Aumentar zoom (tecla +)">+</button>
       </span>
+      <span id="zoomLbl">100%</span>
       <button id="prevBtn" title="Imagem anterior">‹</button><button id="nextBtn" title="Próxima imagem">›</button>
     </div>
     <div class="calib" id="calibBox">
@@ -170,6 +173,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
       <canvas id="cv" width="10" height="10"></canvas>
       <div id="empty">Envie uma ou mais imagens para começar.<br>Passe o mouse sobre uma célula para ver as medidas; clique para excluí-la ou incluí-la de novo.<br>Para medir como no ImageJ, use “📏 Medir com linhas”: primeiro a célula, depois a cápsula + célula.</div>
       <div id="busy">analisando…</div>
+      <div id="navhint">roda do mouse = zoom · arrastar com botão direito (ou espaço + arrastar) = mover</div>
     </div>
   </section>
 </div>
@@ -478,7 +482,7 @@ async function analyzeIndex(i,keepCache){
 
 async function selectImage(i){
   if (i<0||i>=S.images.length) return;
-  S.cur=i; S.hover=-1;
+  S.cur=i; S.hover=-1; S.view.fit=true;
   if (S.mark) Object.assign(S.mark,{step:1,body:null,drag:null,clickMode:false,finishing:false});
   busy(true);
   try{
@@ -537,11 +541,24 @@ function numbering(im){
 function groupOf(im){ return (im.group||'').trim()||NO_GROUP; }
 
 /* ---------- desenho ---------- */
-function dispScale(){
-  const im=S.images[S.cur]; if(!im||!im.w) return 1;
-  if (S.zoom==='fit') return Math.min((stage.clientWidth-2)/im.w,(stage.clientHeight-2)/im.h);
-  return S.zoom;
+/* visão: tela = imagem*k + (tx,ty) */
+S.view={k:1,tx:0,ty:0,fit:true};
+let DPR=1;
+function sizeCanvas(){
+  DPR=window.devicePixelRatio||1;
+  const w=stage.clientWidth, h=stage.clientHeight;
+  if(cv.width!==Math.round(w*DPR)||cv.height!==Math.round(h*DPR)){ cv.width=Math.round(w*DPR); cv.height=Math.round(h*DPR); }
 }
+function fitK(){ const im=S.images[S.cur]; if(!im||!im.w) return 1; return Math.min(stage.clientWidth/im.w, stage.clientHeight/im.h)*0.97; }
+function fitView(){
+  const im=S.images[S.cur]; if(!im||!im.w) return;
+  const k=fitK(); S.view={k, tx:(stage.clientWidth-im.w*k)/2, ty:(stage.clientHeight-im.h*k)/2, fit:true};
+}
+function zoomAt(f,sx,sy){
+  const V=S.view, nk=Math.min(60,Math.max(fitK()*0.5,V.k*f));
+  V.tx=sx-(sx-V.tx)*nk/V.k; V.ty=sy-(sy-V.ty)*nk/V.k; V.k=nk; V.fit=false; draw();
+}
+function dispScale(){ return S.view.k; }
 function line(L,color,w,k){
   ctx.strokeStyle=color; ctx.lineWidth=w; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(L.x1,L.y1); ctx.lineTo(L.x2,L.y2); ctx.stroke();
@@ -553,13 +570,15 @@ function draw(){
   const im=S.images[S.cur];
   $('empty').style.display=im?'none':'flex';
   if(!im||!im.w||cache.idx!==S.cur){ return; }
-  const k=dispScale();
-  cv.width=Math.round(im.w*k); cv.height=Math.round(im.h*k);
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.imageSmoothingEnabled=k<1;
-  ctx.drawImage(cache.data.disp,0,0,cv.width,cv.height);
+  sizeCanvas();
+  if(S.view.fit) fitView();
+  const V=S.view, k=V.k;
+  $('zoomLbl').textContent=Math.round(k*100)+'%';
+  ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#141816'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.setTransform(DPR*k,0,0,DPR*k,DPR*V.tx,DPR*V.ty);
+  ctx.imageSmoothingEnabled=k<2;          // com zoom alto, mostra os pixels como no ImageJ
+  ctx.drawImage(cache.data.disp,0,0);
   if(!im.res) return;
-  ctx.setTransform(k,0,0,k,0,0);
   const lw=1.6/k, nb=numbering(im);
   allCells(im).forEach((c,i)=>{
     const ex=im.excluded.has(i), rej=c.status!=='ok', hov=i===S.hover;
@@ -590,20 +609,40 @@ function draw(){
     if (M.body) line(M.body,'#f5b72a',lw*1.6,k);
     if (M.drag) line(M.drag, M.step===1?'#f5b72a':'#a78bfa', lw*1.6,k);
   }
-  ctx.setTransform(1,0,0,1,0,0);
   if (S.calib && S.calib.pts.length){
-    ctx.strokeStyle='#facc15'; ctx.fillStyle='#facc15'; ctx.lineWidth=2;
-    const pts=S.calib.pts.map(p=>[p[0]*k,p[1]*k]);
-    pts.forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],4,0,7);ctx.fill();});
+    ctx.strokeStyle='#facc15'; ctx.fillStyle='#facc15'; ctx.lineWidth=2/k;
+    const pts=S.calib.pts;
+    pts.forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],4/k,0,7);ctx.fill();});
     if(pts.length===2){ctx.beginPath();ctx.moveTo(...pts[0]);ctx.lineTo(...pts[1]);ctx.stroke();}
   }
+  ctx.setTransform(1,0,0,1,0,0);
 }
 
 /* ---------- interação no canvas ---------- */
 function imgCoords(ev){
-  const r=cv.getBoundingClientRect(), k=dispScale();
-  return [(ev.clientX-r.left)/k,(ev.clientY-r.top)/k];
+  const r=cv.getBoundingClientRect(), V=S.view;
+  return [(ev.clientX-r.left-V.tx)/V.k,(ev.clientY-r.top-V.ty)/V.k];
 }
+/* ---------- zoom e movimento ---------- */
+cv.addEventListener('wheel',ev=>{
+  ev.preventDefault(); if(S.cur<0) return;
+  const r=cv.getBoundingClientRect();
+  zoomAt(Math.exp(-ev.deltaY*(ev.ctrlKey?0.01:0.0018)), ev.clientX-r.left, ev.clientY-r.top);
+},{passive:false});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+let spaceDown=false;
+document.addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceDown=false; cv.style.cursor=''; } });
+cv.addEventListener('mousedown',ev=>{
+  const panning= ev.button===1 || ev.button===2 || (ev.button===0 && spaceDown);
+  if(!panning) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  S.pan={x:ev.clientX,y:ev.clientY,tx:S.view.tx,ty:S.view.ty}; cv.style.cursor='grabbing'; tip.style.display='none';
+},true);
+window.addEventListener('mousemove',ev=>{
+  if(!S.pan) return;
+  S.view.tx=S.pan.tx+ev.clientX-S.pan.x; S.view.ty=S.pan.ty+ev.clientY-S.pan.y; S.view.fit=false; draw();
+});
+window.addEventListener('mouseup',()=>{ if(S.pan){ S.pan=null; cv.style.cursor=''; } });
 function cellAt(x,y){
   const im=S.images[S.cur]; if(!im||!im.res) return -1;
   const nAuto=im.res.cells.length;
@@ -625,19 +664,44 @@ function showTip(ev,html){
   tip.style.left=lx+'px'; tip.style.top=ly+'px';
 }
 const LEN=L=>Math.hypot(L.x2-L.x1,L.y2-L.y1);
+function recompute(m){
+  const b=m.lines.b, c=m.lines.c;
+  m.cx=(c.x1+c.x2)/2; m.cy=(c.y1+c.y2)/2; m.dTot=LEN(c);
+  m.bx=(b.x1+b.x2)/2; m.by=(b.y1+b.y2)/2; m.dBody=LEN(b);
+}
+/* ponta de linha sob o mouse (para ajustar depois de traçar) */
+function hitEndpoint(x,y){
+  const im=S.images[S.cur]; if(!im) return null;
+  const tol=8/S.view.k; let best=null, bd=tol;
+  const test=(L,m)=>{ for(const e of [1,2]){ const d=Math.hypot(L['x'+e]-x,L['y'+e]-y); if(d<=bd){bd=d;best={L,e,m};} } };
+  im.manual.forEach(m=>{ test(m.lines.c,m); test(m.lines.b,m); });
+  if(S.mark && S.mark.body) test(S.mark.body,null);
+  return best;
+}
 cv.addEventListener('mousedown',ev=>{
   // tira o foco de campos de texto, para as setas e o Ctrl+Z voltarem a funcionar na imagem
   const ae=document.activeElement; if(ae && ae!==document.body && ae.blur) ae.blur();
   if(!S.mark) return;
   ev.preventDefault();
+  if (ev.button!==0) return;
   const [x,y]=imgCoords(ev), M=S.mark;
+  if (!M.drag){ const h=hitEndpoint(x,y); if(h){ S.edit=h; tip.style.display='none'; return; } }
   if (M.drag && M.clickMode){ M.drag.x2=x; M.drag.y2=y; M.clickMode=false; M.finishing=true; return; }
   M.drag={x1:x,y1:y,x2:x,y2:y};
 });
 cv.addEventListener('mousemove',ev=>{
+  if (S.pan) return;
   if (S.calib) return;
+  if (S.edit){
+    const [x,y]=imgCoords(ev), E=S.edit; E.L['x'+E.e]=x; E.L['y'+E.e]=y;
+    if(E.m) recompute(E.m);
+    draw();
+    const m=E.m; showTip(ev, m ? `célula: <b>${fmt(toU(m.dBody))} ${unit()}</b><br>cápsula + célula: <b>${fmt(toU(m.dTot))} ${unit()}</b>` : `célula: <b>${fmt(toU(LEN(E.L)))} ${unit()}</b>`);
+    return;
+  }
   if (S.mark){
     const [x,y]=imgCoords(ev);
+    if(!S.mark.drag) cv.style.cursor = hitEndpoint(x,y) ? 'move' : '';
     if (S.mark.drag && !S.mark.finishing){ S.mark.drag.x2=x; S.mark.drag.y2=y; draw();
       showTip(ev,`${S.mark.step===1?'diâmetro da célula':'diâmetro cápsula + célula'}: <b>${fmt(toU(LEN(S.mark.drag)))} ${unit()}</b>`); }
     else tip.style.display='none';
@@ -662,7 +726,11 @@ cv.addEventListener('mousemove',ev=>{
   }
   showTip(ev,html);
 });
-cv.addEventListener('mouseup',ev=>{
+window.addEventListener('mouseup',ev=>{   // na janela: soltar fora da imagem não perde a linha
+  if (ev.button!==0) return;
+  if (S.edit){ const m=S.edit.m; S.edit=null; tip.style.display='none';
+    if(m && LEN(m.lines.c)<=LEN(m.lines.b)) $('markMsg').innerHTML='<b>Atenção:</b> a linha da cápsula ficou menor que a da célula.';
+    renderAll(); return; }
   const M=S.mark; if(!M||!M.drag) return;
   if (!M.finishing){
     const [x,y]=imgCoords(ev); M.drag.x2=x; M.drag.y2=y;
@@ -679,7 +747,7 @@ cv.addEventListener('mouseup',ev=>{
 });
 cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
 cv.addEventListener('click',ev=>{
-  if (S.mark) return;
+  if (S.mark || spaceDown) return;
   const [x,y]=imgCoords(ev);
   if (S.calib){
     if(S.calib.pts.length<2){ S.calib.pts.push([x,y]); draw(); }
@@ -702,7 +770,7 @@ function updateMarkMsg(){
   $('markMsg').innerHTML = (M.step===1
     ? '<b>1 de 2 · Célula:</b> trace uma linha de borda a borda da <b>célula</b> (amarela). Arraste, ou clique numa borda e depois na outra.'
     : '<b>2 de 2 · Cápsula + célula:</b> agora trace de borda a borda da <b>cápsula</b>, até o branco de fora (roxa). <span style="color:var(--muted)">Esc refaz esta célula.</span>')
-    + (n?` <span style="color:var(--muted)">· ${n} medida(s) nesta imagem · Ctrl+Z desfaz a última</span>`:'');
+    + (n?` <span style="color:var(--muted)">· ${n} medida(s) nesta imagem · arraste a ponta de uma linha para ajustar · Ctrl+Z desfaz a última</span>`:'');
 }
 function setMark(on){
   if(on && S.cur<0) return;
@@ -766,20 +834,25 @@ fileIn.onchange=()=>{ addFiles(fileIn.files); fileIn.value=''; };
 ['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();if(t==='drop'||e.target===document.documentElement)drop.classList.remove('over');}));
 document.addEventListener('drop',e=>{ drop.classList.remove('over'); if(e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
 
-function setZoom(z){ S.zoom=z; ['zFit','z1','z2'].forEach(id=>$(id).classList.remove('on')); $(z==='fit'?'zFit':z===1?'z1':'z2').classList.add('on'); draw(); }
-$('zFit').onclick=()=>setZoom('fit'); $('z1').onclick=()=>setZoom(1); $('z2').onclick=()=>setZoom(2);
+const zc=()=>[stage.clientWidth/2,stage.clientHeight/2];
+$('zFit').onclick=()=>{ S.view.fit=true; draw(); };
+$('zIn').onclick=()=>zoomAt(1.5,...zc()); $('zOut').onclick=()=>zoomAt(1/1.5,...zc());
 $('prevBtn').onclick=()=>selectImage(S.cur-1); $('nextBtn').onclick=()=>selectImage(S.cur+1);
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && S.mark){ if(S.mark.step===2||S.mark.drag){ Object.assign(S.mark,{step:1,body:null,drag:null,clickMode:false,finishing:false}); updateMarkMsg(); draw(); } else setMark(false); return; }
 
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.code==='Space'){ spaceDown=true; cv.style.cursor='grab'; e.preventDefault(); return; }
+  if(e.key==='+'||e.key==='='){ zoomAt(1.5,...zc()); return; }
+  if(e.key==='-'||e.key==='_'){ zoomAt(1/1.5,...zc()); return; }
+  if(e.key==='0'){ S.view.fit=true; draw(); return; }
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && S.cur>=0){ const im=S.images[S.cur];
     if(S.mark && S.mark.step===2){ Object.assign(S.mark,{step:1,body:null,drag:null}); }
     else if(im.manual.length) im.manual.pop();
     e.preventDefault(); renderAll(); updateMarkMsg(); return; }
   if(e.key==='ArrowRight')selectImage(S.cur+1); if(e.key==='ArrowLeft')selectImage(S.cur-1);
 });
-window.addEventListener('resize',()=>{ if(S.zoom==='fit') draw(); });
+window.addEventListener('resize',()=>draw());
 
 $('tCur').onclick=()=>{S.tableAll=false;$('tCur').classList.add('on');$('tAll').classList.remove('on');renderTable();};
 $('tAll').onclick=()=>{S.tableAll=true;$('tAll').classList.add('on');$('tCur').classList.remove('on');renderTable();};
