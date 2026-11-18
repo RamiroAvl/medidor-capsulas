@@ -36,6 +36,7 @@ button:hover{border-color:#aab3af}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary:hover{filter:brightness(1.08)}
 button.on{background:var(--accent-soft);border-color:var(--accent)}
+button.primary.on{background:#5b4bc4;border-color:#5b4bc4;color:#fff}
 .imglist{list-style:none;margin:8px 0 0;padding:0;max-height:320px;overflow:auto}
 .imglist li{display:flex;flex-direction:column;gap:3px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
 .imglist li .top{display:flex;justify-content:space-between;gap:8px}
@@ -98,7 +99,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
 <body>
 <header>
   <h1>Medidor de cápsulas · Cryptococcus</h1>
-  <p>Coloração com tinta nanquim · diâmetro total, diâmetro do corpo e espessura da cápsula, célula a célula</p>
+  <p>Coloração com tinta nanquim · diâmetro cápsula + célula, diâmetro da célula e espessura da cápsula, célula a célula</p>
 </header>
 
 <div class="layout">
@@ -120,15 +121,17 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     </div>
 
     <div class="card">
-      <h2>Detecção</h2>
+      <h2>Detecção automática</h2>
+      <label class="row"><span>Detectar células sozinho <span style="color:var(--muted);font-size:12px">(experimental)</span></span> <input type="checkbox" id="auto"></label>
+      <div id="autoOpts">
       <label class="row">Limiar da cápsula <span class="v" id="capOffV">0</span></label>
       <input type="range" id="capOff" min="-60" max="60" step="1" value="0">
       <label class="row">Limiar do corpo celular <span class="v" id="bodyOffV">0</span></label>
       <input type="range" id="bodyOff" min="-80" max="40" step="1" value="0">
       <label class="row">Arredondamento mínimo <span class="v" id="minRoundV">0,70</span></label>
       <input type="range" id="minRound" min="0.3" max="0.95" step="0.01" value="0.7">
-      <label class="row">Diâmetro total mín. <span><input type="number" id="minD" step="any" min="0"> <span class="u">px</span></span></label>
-      <label class="row">Diâmetro total máx. <span><input type="number" id="maxD" step="any" min="0"> <span class="u">px</span></span></label>
+      <label class="row">Diâmetro cápsula + célula mín. <span><input type="number" id="minD" step="any" min="0"> <span class="u">px</span></span></label>
+      <label class="row">Diâmetro cápsula + célula máx. <span><input type="number" id="maxD" step="any" min="0"> <span class="u">px</span></span></label>
       <label class="row">Ignorar células na borda <input type="checkbox" id="excludeBorder" checked></label>
       <details>
         <summary>Mais opções</summary>
@@ -137,16 +140,18 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
         <label class="row">Inverter contraste <input type="checkbox" id="invert"></label>
         <p class="hint">Use "inverter" só se a cápsula aparecer escura sobre fundo claro.</p>
       </details>
-      <p class="hint">O limiar é calculado sozinho em cada imagem (método de Otsu); os controles deslizantes só deslocam esse valor. Mudar um controle refaz a análise e desfaz as exclusões manuais (as células marcadas à mão são mantidas).</p>
+      <p class="hint">O limiar é calculado sozinho em cada imagem (método de Otsu); os controles deslizantes só deslocam esse valor. Mudar um controle refaz a análise e desfaz as exclusões manuais (as medidas feitas com linhas são mantidas).</p>
+      </div>
+      <p class="hint" id="autoOff">Desligada: as medidas são feitas com “📏 Medir com linhas”. Ligue para testar se o site encontra as células sozinho nas suas imagens; funciona melhor com células separadas e corpo celular escuro.</p>
     </div>
   </aside>
 
   <section class="viewer">
     <div class="toolbar">
       <span class="title" id="imgTitle">Nenhuma imagem</span>
-      <span class="legend"><span><i style="background:#2dd4bf"></i>cápsula</span><span><i style="background:var(--body)"></i>corpo</span><span><i style="background:#a78bfa"></i>marcada à mão</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
+      <span class="legend"><span><i style="background:var(--body)"></i>célula</span><span><i style="background:#a78bfa"></i>cápsula (linha)</span><span><i style="background:#2dd4bf"></i>cápsula (automática)</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
       <span class="sp"></span>
-      <button id="markBtn" title="Desenhar uma célula que não foi detectada">✚ Marcar célula à mão</button>
+      <button id="markBtn" class="primary" title="Medir traçando linhas, como no ImageJ">📏 Medir com linhas</button>
       <span class="seg">
         <button id="zFit" class="on">Ajustar</button><button id="z1">100%</button><button id="z2">200%</button>
       </span>
@@ -163,7 +168,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     </div>
     <div id="stage">
       <canvas id="cv" width="10" height="10"></canvas>
-      <div id="empty">Envie uma ou mais imagens para começar.<br>Passe o mouse sobre uma célula para ver as medidas; clique para excluí-la ou incluí-la de novo.<br>Se uma célula não for encontrada, use “Marcar célula à mão”.</div>
+      <div id="empty">Envie uma ou mais imagens para começar.<br>Passe o mouse sobre uma célula para ver as medidas; clique para excluí-la ou incluí-la de novo.<br>Para medir como no ImageJ, use “📏 Medir com linhas”: primeiro a célula, depois a cápsula + célula.</div>
       <div id="busy">analisando…</div>
     </div>
   </section>
@@ -176,11 +181,12 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     <span class="seg"><button id="tCur" class="on">Esta imagem</button><button id="tAll">Todas as imagens</button></span>
     <span class="sp"></span>
     <label style="font-size:13px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="comma" checked> vírgula decimal</label>
-    <button class="primary" id="copyBtn">Copiar tabela (colar no Excel)</button>
+    <button id="copyBtn">Copiar tabela</button>
+    <button class="primary" id="dlCsv2">⬇ Baixar planilha (Excel)</button>
     <span id="copied"></span>
   </div>
   <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-  <p class="hint">Diâmetros são equivalentes ao círculo de mesma área. Espessura da cápsula = (diâmetro total − diâmetro do corpo) / 2. Arredondamento = 1 para um círculo perfeito; aglomerados de células ficam abaixo de ~0,6 e são ignorados. A tabela copiada inclui só as células válidas.</p>
+  <p class="hint">Nas medidas com linhas, cada diâmetro é o comprimento da linha traçada (para apagar uma, use Ctrl+Z, ou desligue “Medir com linhas” e clique nela). Na detecção automática, o diâmetro é o do círculo de mesma área. Espessura da cápsula = (diâmetro cápsula + célula − diâmetro da célula) / 2. Arredondamento = 1 para um círculo perfeito; aglomerados de células ficam abaixo de ~0,6 e são ignorados. A tabela copiada inclui só as células válidas.</p>
 </section>
 
 <section class="cmp">
@@ -189,14 +195,14 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     <span class="sp"></span>
     <button id="dlPng">Baixar gráfico (PNG)</button>
     <button id="dlSvg">Baixar gráfico (SVG)</button>
-    <button id="dlCsv">Baixar dados (CSV)</button>
+    <button id="dlCsv">Baixar planilha (Excel)</button>
   </div>
   <div class="controls">
     <label>Medida <select id="metric">
       <option value="thick">Espessura da cápsula</option>
-      <option value="dBody">Diâmetro do corpo</option>
-      <option value="dTot">Diâmetro total</option>
-      <option value="ratio">Razão diâmetro total / corpo</option>
+      <option value="dBody">Diâmetro da célula</option>
+      <option value="dTot">Diâmetro cápsula + célula</option>
+      <option value="ratio">Razão (cápsula + célula) / célula</option>
     </select></label>
   </div>
   <div class="chartcard">
@@ -393,9 +399,10 @@ const S={
   images:[], cur:-1, hover:-1, zoom:'fit', calib:null, mark:null, tableAll:false,
   scale:null, // µm por pixel
   nextGroup:'',
-  p:{capOff:0, bodyOff:0, minRound:0.7, minD:10, maxD:600, excludeBorder:true, invert:false, blur:1}
+  p:{auto:false, capOff:0, bodyOff:0, minRound:0.7, minD:10, maxD:600, excludeBorder:true, invert:false, blur:1}
 };
-try{ const s=parseFloat(localStorage.getItem('cryptoScale')); if(s>0) S.scale=s; }catch(e){}
+S.scale=10/57.8343; // escala padrão: 57,8343 pixels = 10 µm
+try{ const s=parseFloat(localStorage.getItem('cryptoScale')); if(s>0) S.scale=s; S.p.auto=localStorage.getItem('cryptoAuto')==='1'; }catch(e){}
 
 /* ---------- carregamento ---------- */
 async function decode(file){
@@ -443,6 +450,7 @@ async function addFiles(files){
   for (const f of list) S.images.push({name:f.name,file:f,res:null,excluded:new Set(),manual:[],group:g,err:null});
   renderList();
   await selectImage(first);
+  if(!S.p.auto && !S.mark) setMark(true);
   for (let i=first;i<S.images.length;i++){ if(!S.images[i].res && !S.images[i].err) await analyzeIndex(i,false); }
   renderAll();
 }
@@ -460,7 +468,7 @@ async function analyzeIndex(i,keepCache){
     const data = (cache.idx===i) ? cache.data : await decode(im.file);
     if (keepCache) cache={idx:i,data};
     im.w=data.w; im.h=data.h;
-    im.res=analyzeGray(data.gray,data.w,data.h,S.p);
+    im.res= S.p.auto ? analyzeGray(data.gray,data.w,data.h,S.p) : {cells:[],lab:null,idMap:null};
     im.excluded=new Set();
     im.err=null;
   }catch(e){ im.err=e.message||String(e); im.res=null; }
@@ -471,7 +479,7 @@ async function analyzeIndex(i,keepCache){
 async function selectImage(i){
   if (i<0||i>=S.images.length) return;
   S.cur=i; S.hover=-1;
-  if (S.mark) S.mark.step=1;
+  if (S.mark) Object.assign(S.mark,{step:1,body:null,drag:null,clickMode:false,finishing:false});
   busy(true);
   try{
     await getData(i);
@@ -517,7 +525,7 @@ function allCells(im){
   if(!im||!im.res) return [];
   const man=im.manual.map(m=>({
     cx:m.cx, cy:m.cy, dTot:m.dTot, dBody:m.dBody, thick:(m.dTot-m.dBody)/2,
-    roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, status:'ok', flags:['marcada à mão'], manual:true
+    roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, lines:m.lines, status:'ok', flags:['medida à mão'], manual:true
   }));
   return im.res.cells.concat(man);
 }
@@ -533,6 +541,12 @@ function dispScale(){
   const im=S.images[S.cur]; if(!im||!im.w) return 1;
   if (S.zoom==='fit') return Math.min((stage.clientWidth-2)/im.w,(stage.clientHeight-2)/im.h);
   return S.zoom;
+}
+function line(L,color,w,k){
+  ctx.strokeStyle=color; ctx.lineWidth=w; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(L.x1,L.y1); ctx.lineTo(L.x2,L.y2); ctx.stroke();
+  ctx.fillStyle=color; const s=3.5/k;
+  ctx.fillRect(L.x1-s,L.y1-s,2*s,2*s); ctx.fillRect(L.x2-s,L.y2-s,2*s,2*s);
 }
 function circle(x,y,r){ ctx.beginPath(); ctx.arc(x,y,Math.max(r,0.5),0,Math.PI*2); ctx.stroke(); }
 function draw(){
@@ -552,8 +566,11 @@ function draw(){
     ctx.setLineDash(rej?[4/k,3/k]:[]);
     ctx.lineWidth=hov?lw*2:lw;
     ctx.strokeStyle= ex||rej ? 'rgba(239,68,68,.9)' : c.manual ? '#a78bfa' : '#2dd4bf';
-    circle(c.cx,c.cy,c.dTot/2);
-    if (c.body && !rej){
+    if(!c.manual) circle(c.cx,c.cy,c.dTot/2);
+    if (c.manual){
+      ctx.globalAlpha=0.35; circle(c.cx,c.cy,c.dTot/2); ctx.strokeStyle='#f5b72a'; circle(c.body.cx,c.body.cy,c.body.d/2); ctx.globalAlpha=1;
+      line(c.lines.c,'#a78bfa',hov?lw*2:lw*1.3,k); line(c.lines.b,'#f5b72a',hov?lw*2:lw*1.3,k);
+    } else if (c.body && !rej){
       ctx.strokeStyle= ex ? 'rgba(239,68,68,.6)' : '#f5b72a';
       circle(c.body.cx,c.body.cy,c.body.d/2);
     }
@@ -570,10 +587,8 @@ function draw(){
   // marcação manual em andamento
   const M=S.mark;
   if (M){
-    ctx.lineWidth=lw*1.3; ctx.setLineDash([5/k,3/k]);
-    if (M.cap){ ctx.strokeStyle='#a78bfa'; circle(M.cap.cx,M.cap.cy,M.cap.r); }
-    if (M.drag){ ctx.strokeStyle= M.step===1?'#a78bfa':'#f5b72a'; circle(M.drag.cx,M.drag.cy,M.drag.r); }
-    ctx.setLineDash([]);
+    if (M.body) line(M.body,'#f5b72a',lw*1.6,k);
+    if (M.drag) line(M.drag, M.step===1?'#f5b72a':'#a78bfa', lw*1.6,k);
   }
   ctx.setTransform(1,0,0,1,0,0);
   if (S.calib && S.calib.pts.length){
@@ -595,6 +610,7 @@ function cellAt(x,y){
   for (let j=im.manual.length-1;j>=0;j--){
     const m=im.manual[j]; if (Math.hypot(x-m.cx,y-m.cy)<=m.dTot/2) return nAuto+j;
   }
+  if(!im.res.lab) return -1;
   const xi=Math.floor(x), yi=Math.floor(y);
   if(xi<0||yi<0||xi>=im.w||yi>=im.h) return -1;
   const id=im.res.lab[yi*im.w+xi];
@@ -608,18 +624,20 @@ function showTip(ev,html){
   if(ly+th>innerHeight-8) ly=ev.clientY-th-16;
   tip.style.left=lx+'px'; tip.style.top=ly+'px';
 }
+const LEN=L=>Math.hypot(L.x2-L.x1,L.y2-L.y1);
 cv.addEventListener('mousedown',ev=>{
   if(!S.mark) return;
   ev.preventDefault();
-  const [x,y]=imgCoords(ev);
-  S.mark.drag={cx:x,cy:y,r:0};
+  const [x,y]=imgCoords(ev), M=S.mark;
+  if (M.drag && M.clickMode){ M.drag.x2=x; M.drag.y2=y; M.clickMode=false; M.finishing=true; return; }
+  M.drag={x1:x,y1:y,x2:x,y2:y};
 });
 cv.addEventListener('mousemove',ev=>{
   if (S.calib) return;
   if (S.mark){
     const [x,y]=imgCoords(ev);
-    if (S.mark.drag){ S.mark.drag.r=Math.hypot(x-S.mark.drag.cx,y-S.mark.drag.cy); draw(); }
-    if (S.mark.drag) showTip(ev,`raio: ${fmt(toU(S.mark.drag.r))} ${unit()} · diâmetro: ${fmt(toU(2*S.mark.drag.r))} ${unit()}`);
+    if (S.mark.drag && !S.mark.finishing){ S.mark.drag.x2=x; S.mark.drag.y2=y; draw();
+      showTip(ev,`${S.mark.step===1?'diâmetro da célula':'diâmetro cápsula + célula'}: <b>${fmt(toU(LEN(S.mark.drag)))} ${unit()}</b>`); }
     else tip.style.display='none';
     return;
   }
@@ -629,12 +647,12 @@ cv.addEventListener('mousemove',ev=>{
   const im=S.images[S.cur], c=allCells(im)[i], u=unit();
   let html='';
   if(c.status!=='ok'){
-    html=`<b>Ignorada</b><br><span class="warn">${c.flags.join('; ')}</span><br><span class="k">Diâmetro:</span> ${fmt(toU(c.dTot))} ${u}<br><span class="k" style="font-size:11.5px">se for uma célula, use “Marcar célula à mão”</span>`;
+    html=`<b>Ignorada</b><br><span class="warn">${c.flags.join('; ')}</span><br><span class="k">Diâmetro:</span> ${fmt(toU(c.dTot))} ${u}<br><span class="k" style="font-size:11.5px">meça com “📏 Medir com linhas”</span>`;
   } else {
     const n=numbering(im).get(i), ex=im.excluded.has(i);
     html=`<b>Célula ${n}</b>${ex?' <span class="warn">(excluída)</span>':''}<br>
-      <span class="k">Diâmetro total:</span> ${fmt(toU(c.dTot))} ${u}<br>
-      <span class="k">Diâmetro do corpo:</span> ${fmt(toU(c.dBody))} ${u}<br>
+      <span class="k">Diâmetro cápsula + célula:</span> ${fmt(toU(c.dTot))} ${u}<br>
+      <span class="k">Diâmetro da célula:</span> ${fmt(toU(c.dBody))} ${u}<br>
       <span class="k">Espessura da cápsula:</span> <b>${fmt(toU(c.thick))} ${u}</b><br>
       ${c.manual?'':`<span class="k">Arredondamento:</span> ${fmt(c.roundness)}<br>`}
       ${c.flags.length?`<span class="warn">${c.flags.join('; ')}</span><br>`:''}
@@ -644,19 +662,20 @@ cv.addEventListener('mousemove',ev=>{
 });
 cv.addEventListener('mouseup',ev=>{
   const M=S.mark; if(!M||!M.drag) return;
-  const d=M.drag; M.drag=null; tip.style.display='none';
-  if (d.r<2){ draw(); return; }           // clique sem arrastar: ignora
-  if (M.step===1){ M.cap={cx:d.cx,cy:d.cy,r:d.r}; M.step=2; }
-  else {
-    if (d.r>=M.cap.r){ $('markMsg').innerHTML='<b>O corpo precisa ser menor que a cápsula.</b> Arraste de novo, do centro até a borda do <b>corpo celular</b> (amarelo).'; draw(); return; }
-    const im=S.images[S.cur];
-    im.manual.push({cx:M.cap.cx,cy:M.cap.cy,dTot:2*M.cap.r,bx:d.cx,by:d.cy,dBody:2*d.r});
-    M.cap=null; M.step=1;
-    renderAll(); return;
+  if (!M.finishing){
+    const [x,y]=imgCoords(ev); M.drag.x2=x; M.drag.y2=y;
+    if (LEN(M.drag)<3){ M.clickMode=true; return; }   // clique simples: espera o segundo clique
   }
-  updateMarkMsg(); draw();
+  const L=M.drag; M.drag=null; M.finishing=false; M.clickMode=false; tip.style.display='none';
+  if (LEN(L)<3){ draw(); return; }
+  if (M.step===1){ M.body=L; M.step=2; updateMarkMsg(); draw(); return; }
+  if (LEN(L)<=LEN(M.body)){ $('markMsg').innerHTML='<b>A linha da cápsula precisa ser maior que a da célula.</b> Trace de novo a linha da <b>cápsula + célula</b> (roxa), de borda a borda.'; draw(); return; }
+  const im=S.images[S.cur], b=M.body;
+  im.manual.push({cx:(L.x1+L.x2)/2, cy:(L.y1+L.y2)/2, dTot:LEN(L), bx:(b.x1+b.x2)/2, by:(b.y1+b.y2)/2, dBody:LEN(b), lines:{b, c:L}});
+  M.body=null; M.step=1;
+  renderAll(); updateMarkMsg();
 });
-cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.mark&&S.mark.drag){S.mark.drag=null;draw();} if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
+cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
 cv.addEventListener('click',ev=>{
   if (S.mark) return;
   const [x,y]=imgCoords(ev);
@@ -677,13 +696,15 @@ cv.addEventListener('click',ev=>{
 /* ---------- marcação manual ---------- */
 function updateMarkMsg(){
   const M=S.mark; if(!M) return;
-  $('markMsg').innerHTML = M.step===1
-    ? '<b>Passo 1 de 2:</b> arraste do <b>centro</b> da célula até a <b>borda externa da cápsula</b> (roxo).'
-    : '<b>Passo 2 de 2:</b> agora arraste do centro até a <b>borda do corpo celular</b> (amarelo). <span style="color:var(--muted)">Esc cancela esta célula.</span>';
+  const n=S.cur>=0?S.images[S.cur].manual.length:0;
+  $('markMsg').innerHTML = (M.step===1
+    ? '<b>1 de 2 · Célula:</b> trace uma linha de borda a borda da <b>célula</b> (amarela). Arraste, ou clique numa borda e depois na outra.'
+    : '<b>2 de 2 · Cápsula + célula:</b> agora trace de borda a borda da <b>cápsula</b>, até o branco de fora (roxa). <span style="color:var(--muted)">Esc refaz esta célula.</span>')
+    + (n?` <span style="color:var(--muted)">· ${n} medida(s) nesta imagem · Ctrl+Z desfaz a última</span>`:'');
 }
 function setMark(on){
   if(on && S.cur<0) return;
-  S.mark = on ? {step:1,cap:null,drag:null} : null;
+  S.mark = on ? {step:1,body:null,drag:null,clickMode:false,finishing:false} : null;
   if(on){ S.calib=null; $('calibBox').classList.remove('show'); }
   $('markBox').classList.toggle('show',!!on);
   $('markBtn').classList.toggle('on',!!on);
@@ -730,6 +751,10 @@ $('minD').addEventListener('change',e=>{ S.p.minD=fromU(parseFloat(e.target.valu
 $('maxD').addEventListener('change',e=>{ S.p.maxD=fromU(parseFloat(e.target.value)||1e6); reanalyzeAll(); });
 $('excludeBorder').addEventListener('change',e=>{ S.p.excludeBorder=e.target.checked; reanalyzeAll(); });
 $('invert').addEventListener('change',e=>{ S.p.invert=e.target.checked; reanalyzeAll(); });
+function syncAuto(){ $('auto').checked=S.p.auto; $('autoOpts').style.display=S.p.auto?'':'none'; $('autoOff').style.display=S.p.auto?'none':''; }
+$('auto').addEventListener('change',e=>{ S.p.auto=e.target.checked; try{localStorage.setItem('cryptoAuto',S.p.auto?'1':'0');}catch(_){}
+  syncAuto(); reanalyzeAll(); });
+syncAuto();
 $('nextGroup').addEventListener('input',e=>{ S.nextGroup=e.target.value; });
 
 const drop=$('drop'), fileIn=$('file');
@@ -743,7 +768,11 @@ function setZoom(z){ S.zoom=z; ['zFit','z1','z2'].forEach(id=>$(id).classList.re
 $('zFit').onclick=()=>setZoom('fit'); $('z1').onclick=()=>setZoom(1); $('z2').onclick=()=>setZoom(2);
 $('prevBtn').onclick=()=>selectImage(S.cur-1); $('nextBtn').onclick=()=>selectImage(S.cur+1);
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape' && S.mark){ if(S.mark.step===2||S.mark.drag){ S.mark.step=1; S.mark.cap=null; S.mark.drag=null; updateMarkMsg(); draw(); } else setMark(false); return; }
+  if(e.key==='Escape' && S.mark){ if(S.mark.step===2||S.mark.drag){ Object.assign(S.mark,{step:1,body:null,drag:null,clickMode:false,finishing:false}); updateMarkMsg(); draw(); } else setMark(false); return; }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && S.cur>=0){ const im=S.images[S.cur];
+    if(S.mark && S.mark.step===2){ Object.assign(S.mark,{step:1,body:null,drag:null}); }
+    else if(im.manual.length) im.manual.pop();
+    e.preventDefault(); renderAll(); updateMarkMsg(); return; }
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
   if(e.key==='ArrowRight')selectImage(S.cur+1); if(e.key==='ArrowLeft')selectImage(S.cur-1);
 });
@@ -793,12 +822,12 @@ function rowsFor(im){
 }
 function renderTable(){
   const u=unit(), thead=$('tbl').tHead, tb=$('tbl').tBodies[0];
-  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro total (${u})</th><th>Diâmetro do corpo (${u})</th><th>Espessura da cápsula (${u})</th><th>Arredondamento</th><th>Observação</th></tr>`;
+  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro da célula (${u})</th><th>Diâmetro cápsula + célula (${u})</th><th>Espessura da cápsula (${u})</th><th>Arredondamento</th><th>Observação</th></tr>`;
   let rows=[];
   if(S.tableAll) S.images.forEach(im=>rows.push(...rowsFor(im)));
   else if(S.cur>=0) rows=rowsFor(S.images[S.cur]);
   $('tableTitle').textContent=S.tableAll?'Medidas · todas as imagens':'Medidas · esta imagem';
-  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'—':fmt(r.c.roundness)}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
+  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'—':fmt(r.c.roundness)}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
     || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
   [...tb.rows].forEach(tr=>{
     tr.onmouseenter=()=>{ if(+tr.dataset.img===S.cur){S.hover=+tr.dataset.i;draw();} };
@@ -816,15 +845,15 @@ function renderStats(){
   const box=(lbl,arr,key)=>{ const [m,sd]=meanSd(arr.map(c=>toU(c[key]))); return `<div class="stat"><div class="lbl">${lbl}</div><div class="val">${fmt(m)} <span style="font-size:13px;font-weight:500">${u}</span></div><div class="sub">± ${fmt(sd)} DP · todas as imagens</div></div>`; };
   $('stats').innerHTML=
     `<div class="stat"><div class="lbl">Células válidas</div><div class="val">${all.length}</div><div class="sub">${cur.length} nesta imagem · ${S.images.length} imagem(ns)</div></div>`+
-    box('Espessura da cápsula',all,'thick')+box('Diâmetro do corpo',all,'dBody')+box('Diâmetro total',all,'dTot');
+    box('Diâmetro da célula',all,'dBody')+box('Diâmetro cápsula + célula',all,'dTot')+box('Espessura da cápsula',all,'thick');
 }
 
 /* ---------- comparação entre grupos ---------- */
 const METRICS={
   thick:{label:'Espessura da cápsula',unit:true,get:c=>toU(c.thick)},
-  dBody:{label:'Diâmetro do corpo',unit:true,get:c=>toU(c.dBody)},
-  dTot:{label:'Diâmetro total',unit:true,get:c=>toU(c.dTot)},
-  ratio:{label:'Razão diâmetro total / corpo',unit:false,get:c=>c.dTot/c.dBody}
+  dBody:{label:'Diâmetro da célula',unit:true,get:c=>toU(c.dBody)},
+  dTot:{label:'Diâmetro cápsula + célula',unit:true,get:c=>toU(c.dTot)},
+  ratio:{label:'Razão (cápsula + célula) / célula',unit:false,get:c=>c.dTot/c.dBody}
 };
 function metricLabel(m){ return METRICS[m].label+(METRICS[m].unit?` (${unit()})`:''); }
 function collectGroups(metric){
@@ -968,11 +997,12 @@ $('dlPng').onclick=()=>{
 function tableText(sep,comma,imgs){
   const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=v.toFixed(3); return comma?s.replace('.',','):s; };
   const q=v=>{ v=String(v); return sep===';'&&/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const lines=[['Imagem','Grupo','Célula',`Diâmetro total (${u})`,`Diâmetro do corpo (${u})`,`Espessura da cápsula (${u})`,'Arredondamento','Origem','Observação'].join(sep)];
+  const lines=[['Imagem','Grupo','Célula',`Diâmetro da célula (${u})`,`Diâmetro cápsula + célula (${u})`,`Espessura da cápsula (${u})`,'Arredondamento','Origem','Observação'].join(sep)];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
-    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dTot)),f(toU(r.c.dBody)),f(toU(r.c.thick)),r.c.manual?'':f(r.c.roundness),r.c.manual?'manual':'automática',q(r.c.flags.filter(x=>x!=='marcada à mão').join('; '))].join(sep)); }));
+    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),r.c.manual?'':f(r.c.roundness),r.c.manual?'linhas':'automática',q(r.c.flags.filter(x=>x!=='medida à mão').join('; '))].join(sep)); }));
   return lines;
 }
+$('dlCsv2').onclick=()=>$('dlCsv').click();
 $('dlCsv').onclick=()=>{
   const comma=$('comma').checked, lines=tableText(comma?';':',',comma,S.images);
   download(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),`medidas-capsula-${stamp()}.csv`);
@@ -992,7 +1022,7 @@ $('copyBtn').onclick=async()=>{
 function renderAll(){
   const im=S.images[S.cur];
   $('imgTitle').textContent= im ? `${im.name}${im.err?' — erro: '+im.err:''}` : 'Nenhuma imagem';
-  renderList(); draw(); renderTable(); renderStats(); syncUnitInputs(); renderCompare();
+  renderList(); draw(); renderTable(); renderStats(); syncUnitInputs(); renderCompare(); updateMarkMsg();
 }
 renderAll();
 </script>
