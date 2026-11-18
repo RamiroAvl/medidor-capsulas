@@ -145,7 +145,7 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
   <section class="viewer">
     <div class="toolbar">
       <span class="title" id="imgTitle">Nenhuma imagem</span>
-      <span class="legend"><span><i style="background:var(--body)"></i>célula</span><span><i style="background:#a78bfa"></i>cápsula (linha)</span><span><i style="background:#2dd4bf"></i>cápsula (automática)</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
+      <span class="legend"><span><i style="background:var(--body)"></i>célula</span><span><i style="background:#a78bfa"></i>cápsula (linha)</span><span><i style="background:#2dd4bf"></i>cápsula (automática / ajustada)</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
       <span class="sp"></span>
       <button id="markBtn" class="primary" title="Medir traçando linhas, como no ImageJ">📏 Medir com linhas</button>
       <span class="seg">
@@ -674,20 +674,47 @@ function allCells(im){
   if(!im||!im.res) return [];
   const man=im.manual.map(m=>({
     cx:m.cx, cy:m.cy, dTot:m.dTot, dBody:m.dBody, thick:(m.dTot-m.dBody)/2,
-    roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, lines:m.lines, status:'ok', flags:['medida à mão'], manual:true
+    roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, lines:m.lines, status:'ok', manual:true, adjusted:!!m.fromAuto,
+    flags:[m.fromAuto?'automática ajustada à mão':'medida à mão'], ell:m.ell||null
   }));
   const k=S.p.metric||'Eq';
   const auto=im.res.cells.map(c=>{
     if(!c.auto2||!c.cap) return Object.assign({dTot:c.dTot||0,dBody:null,thick:null,roundness:null},c);
     const dTot=c['cap'+k], dBody=c.cel?c['cel'+k]:null;
-    return Object.assign({},c,{dTot,dBody,thick:dBody!=null?(dTot-dBody)/2:null,roundness:c.cap.b/c.cap.a,body:c.cel?{cx:c.cel.cx,cy:c.cel.cy,d:dBody}:null});
+    const o=Object.assign({},c,{dTot,dBody,thick:dBody!=null?(dTot-dBody)/2:null,roundness:c.cap.b/c.cap.a,body:c.cel?{cx:c.cel.cx,cy:c.cel.cy,d:dBody}:null});
+    let phi=null, nd=1e9;
+    im.res.cells.forEach(o2=>{ if(o2===c||!o2.cap||o2.comp!==c.comp) return; const d=Math.hypot(o2.cap.cx-c.cap.cx,o2.cap.cy-c.cap.cy); if(d<nd){nd=d;phi=Math.atan2(o2.cap.cy-c.cap.cy,o2.cap.cx-c.cap.cx);} });
+    if(c.cel) o.lines={c:ellipseLine(c.cap,k,phi), b:ellipseLine(c.cel,k,phi)};
+    // célula substituída por uma medida à mão / ajustada no mesmo lugar
+    if(im.manual.some(m=>Math.hypot(m.cx-c.cap.cx,m.cy-c.cap.cy)<c.cap.b*0.8)) o.status='replaced';
+    return o;
   });
   return auto.concat(man);
 }
 function numbering(im){
-  const m=new Map(); let n=0;
-  allCells(im).forEach((c,i)=>{ if(c.status==='ok') m.set(i,++n); });
+  // a célula ajustada à mão herda o número da automática que ela substituiu
+  const m=new Map(), cells=allCells(im), nA=im.res?im.res.cells.length:0, used=new Set(); let n=0;
+  cells.forEach((c,i)=>{
+    if(i>=nA) return;
+    if(c.status==='ok') m.set(i,++n);
+    else if(c.status==='replaced'){
+      let best=-1, bd=1e9;
+      im.manual.forEach((mm,j)=>{ if(used.has(j)) return; const d=Math.hypot(mm.cx-c.cap.cx,mm.cy-c.cap.cy); if(d<bd){bd=d;best=j;} });
+      if(best>=0){ used.add(best); m.set(nA+best,++n); }
+    }
+  });
+  im.manual.forEach((mm,j)=>{ if(!used.has(j)) m.set(nA+j,++n); });
   return m;
+}
+/* linha de borda a borda sobre a elipse ajustada, com o comprimento da medida escolhida */
+function ellipseLine(E,k,phi){
+  let th;
+  if(k==='Maj') th=E.ang; else if(k==='Min') th=E.ang+Math.PI/2;
+  else { const t=Math.acos(Math.sqrt(E.a/(E.a+E.b))), c1=E.ang+t, c2=E.ang-t;
+    // com célula vizinha encostada: escolhe a direção mais perpendicular a ela
+    th = phi==null ? c1 : (Math.abs(Math.sin(c1-phi))>=Math.abs(Math.sin(c2-phi)) ? c1 : c2); }
+  const r=ellipseRadius(E,th), dx=Math.cos(th)*r, dy=Math.sin(th)*r;
+  return {x1:E.cx-dx,y1:E.cy-dy,x2:E.cx+dx,y2:E.cy+dy};
 }
 function groupOf(im){ return (im.group||'').trim()||NO_GROUP; }
 
@@ -732,19 +759,23 @@ function draw(){
   if(!im.res) return;
   const lw=1.6/k, nb=numbering(im);
   allCells(im).forEach((c,i)=>{
+    if(c.status==='replaced') return;
     const ex=im.excluded.has(i), rej=c.status!=='ok', hov=i===S.hover;
     ctx.setLineDash(rej?[4/k,3/k]:[]);
     ctx.lineWidth=hov?lw*2:lw;
     ctx.strokeStyle= ex||rej ? 'rgba(239,68,68,.9)' : c.manual ? '#a78bfa' : '#2dd4bf';
-    if(c.auto2 && c.cap){
+    const ellE=(E,col,al)=>{ ctx.save(); ctx.globalAlpha=al; ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.beginPath(); ctx.ellipse(E.cx,E.cy,E.a,E.b,E.ang,0,Math.PI*2); ctx.stroke(); ctx.restore(); };
+    if(c.auto2 && c.cap && (rej||!c.lines)){
       ctx.beginPath(); ctx.ellipse(c.cap.cx,c.cap.cy,c.cap.a,c.cap.b,c.cap.ang,0,Math.PI*2); ctx.stroke();
+    } else if(c.auto2 && c.lines){
+      const lc= ex?'rgba(239,68,68,.9)':'#2dd4bf', lb= ex?'rgba(239,68,68,.7)':'#f5b72a';
+      if(hov){ ellE(c.cap,lc,0.45); ellE(c.cel,lb,0.45); }
+      line(c.lines.c,lc,hov?lw*1.8:lw*1.2,k); line(c.lines.b,lb,hov?lw*1.8:lw*1.2,k);
     } else if(!c.manual) circle(c.cx,c.cy,(c.dTot||0)/2);
     if (c.manual){
-      ctx.globalAlpha=0.35; circle(c.cx,c.cy,c.dTot/2); ctx.strokeStyle='#f5b72a'; circle(c.body.cx,c.body.cy,c.body.d/2); ctx.globalAlpha=1;
-      line(c.lines.c,'#a78bfa',hov?lw*2:lw*1.3,k); line(c.lines.b,'#f5b72a',hov?lw*2:lw*1.3,k);
-    } else if (c.auto2 && c.cel && !rej){
-      ctx.strokeStyle= ex ? 'rgba(239,68,68,.6)' : '#f5b72a';
-      ctx.beginPath(); ctx.ellipse(c.cel.cx,c.cel.cy,c.cel.a,c.cel.b,c.cel.ang,0,Math.PI*2); ctx.stroke();
+      if(!c.adjusted){ ctx.globalAlpha=0.35; circle(c.cx,c.cy,c.dTot/2); ctx.strokeStyle='#f5b72a'; circle(c.body.cx,c.body.cy,c.body.d/2); ctx.globalAlpha=1; }
+      if(c.ell&&hov){ ctx.save(); ctx.globalAlpha=0.35; ctx.strokeStyle='#2dd4bf'; ctx.beginPath(); ctx.ellipse(c.ell.cap.cx,c.ell.cap.cy,c.ell.cap.a,c.ell.cap.b,c.ell.cap.ang,0,7); ctx.stroke(); ctx.restore(); }
+      line(c.lines.c,c.adjusted?'#2dd4bf':'#a78bfa',hov?lw*2:lw*1.3,k); line(c.lines.b,'#f5b72a',hov?lw*2:lw*1.3,k);
     }
     ctx.setLineDash([]);
     if(!rej){
@@ -826,19 +857,35 @@ function recompute(m){
 function hitEndpoint(x,y){
   const im=S.images[S.cur]; if(!im) return null;
   const tol=8/S.view.k; let best=null, bd=tol;
-  const test=(L,m)=>{ for(const e of [1,2]){ const d=Math.hypot(L['x'+e]-x,L['y'+e]-y); if(d<=bd){bd=d;best={L,e,m};} } };
-  im.manual.forEach(m=>{ test(m.lines.c,m); test(m.lines.b,m); });
-  if(S.mark && S.mark.body) test(S.mark.body,null);
+  const test=(L,m,which,ci)=>{ for(const e of [1,2]){ const d=Math.hypot(L['x'+e]-x,L['y'+e]-y); if(d<=bd){bd=d;best={L,e,m,which,ci};} } };
+  im.manual.forEach(m=>{ test(m.lines.c,m,'c'); test(m.lines.b,m,'b'); });
+  allCells(im).forEach((c,i)=>{ if(c.auto2&&c.lines&&c.status==='ok'&&!im.excluded.has(i)){ test(c.lines.c,null,'c',i); test(c.lines.b,null,'b',i); } });
+  if(S.mark && S.mark.body) test(S.mark.body,null,'p');
   return best;
+}
+/* começa a ajustar: se a linha é de uma célula automática, ela vira uma medida ajustada */
+function beginEdit(h){
+  if(h.ci!=null && !h.m){
+    const im=S.images[S.cur], c=allCells(im)[h.ci];
+    const m={lines:{b:{...c.lines.b},c:{...c.lines.c}}, fromAuto:true, ell:{cap:c.cap,cel:c.cel}};
+    recompute(m); im.manual.push(m);
+    h={L:m.lines[h.which], e:h.e, m};
+  }
+  S.edit=h; tip.style.display='none';
 }
 cv.addEventListener('mousedown',ev=>{
   // tira o foco de campos de texto, para as setas e o Ctrl+Z voltarem a funcionar na imagem
   const ae=document.activeElement; if(ae && ae!==document.body && ae.blur) ae.blur();
-  if(!S.mark) return;
+  if(!S.mark){
+    if(ev.button!==0||S.calib) return;
+    const [x,y]=imgCoords(ev), h=hitEndpoint(x,y);
+    if(h){ ev.preventDefault(); beginEdit(h); }
+    return;
+  }
   ev.preventDefault();
   if (ev.button!==0) return;
   const [x,y]=imgCoords(ev), M=S.mark;
-  if (!M.drag){ const h=hitEndpoint(x,y); if(h){ S.edit=h; tip.style.display='none'; return; } }
+  if (!M.drag){ const h=hitEndpoint(x,y); if(h){ beginEdit(h); return; } }
   if (M.drag && M.clickMode){ M.drag.x2=x; M.drag.y2=y; M.clickMode=false; M.finishing=true; return; }
   M.drag={x1:x,y1:y,x2:x,y2:y};
 });
@@ -861,6 +908,7 @@ cv.addEventListener('mousemove',ev=>{
     return;
   }
   const [x,y]=imgCoords(ev), i=cellAt(x,y);
+  cv.style.cursor = hitEndpoint(x,y) ? 'move' : '';
   if(i!==S.hover){ S.hover=i; draw(); highlightRow(); }
   if(i<0){ tip.style.display='none'; return; }
   const im=S.images[S.cur], c=allCells(im)[i], u=unit();
@@ -875,13 +923,13 @@ cv.addEventListener('mousemove',ev=>{
       <span class="k">Espessura da cápsula:</span> <b>${fmt(toU(c.thick))} ${u}</b><br>
       ${c.auto2?`<span class="k">Célula, eixos:</span> ${fmt(toU(c.celMaj))} × ${fmt(toU(c.celMin))} ${u}<br><span class="k">Cápsula + célula, eixos:</span> ${fmt(toU(c.capMaj))} × ${fmt(toU(c.capMin))} ${u}<br>`:''}
       ${c.flags.length?`<span class="warn">${c.flags.join('; ')}</span><br>`:''}
-      <span class="k" style="font-size:11.5px">clique para ${c.manual?'remover':ex?'incluir de novo':'excluir'}</span>`;
+      <span class="k" style="font-size:11.5px">${c.manual?'clique para remover':ex?'clique para incluir de novo':'clique para excluir · arraste a ponta de uma linha para ajustar'}</span>`;
   }
   showTip(ev,html);
 });
 window.addEventListener('mouseup',ev=>{   // na janela: soltar fora da imagem não perde a linha
   if (ev.button!==0) return;
-  if (S.edit){ const m=S.edit.m; S.edit=null; tip.style.display='none';
+  if (S.edit){ const m=S.edit.m; S.edit=null; tip.style.display='none'; S.skipClick=true; setTimeout(()=>S.skipClick=false,50);
     if(m && LEN(m.lines.c)<=LEN(m.lines.b)) $('markMsg').innerHTML='<b>Atenção:</b> a linha da cápsula ficou menor que a da célula.';
     renderAll(); return; }
   const M=S.mark; if(!M||!M.drag) return;
@@ -900,7 +948,7 @@ window.addEventListener('mouseup',ev=>{   // na janela: soltar fora da imagem n�
 });
 cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
 cv.addEventListener('click',ev=>{
-  if (S.mark || spaceDown) return;
+  if (S.mark || spaceDown || S.skipClick) return;
   const [x,y]=imgCoords(ev);
   if (S.calib){
     if(S.calib.pts.length<2){ S.calib.pts.push([x,y]); draw(); }
@@ -1012,7 +1060,7 @@ $('tAll').onclick=()=>{S.tableAll=true;$('tAll').classList.add('on');$('tCur').c
 function validCells(im){
   if(!im.res) return [];
   const nb=numbering(im);
-  return allCells(im).map((c,i)=>({c,i,n:nb.get(i)})).filter(o=>o.c.status==='ok');
+  return allCells(im).map((c,i)=>({c,i,n:nb.get(i)})).filter(o=>o.c.status==='ok').sort((a,b)=>a.n-b.n);
 }
 function groupsInUse(){
   const set=new Set(); S.images.forEach(im=>{ const g=(im.group||'').trim(); if(g) set.add(g); });
@@ -1054,7 +1102,7 @@ function renderTable(){
   if(S.tableAll) S.images.forEach(im=>rows.push(...rowsFor(im)));
   else if(S.cur>=0) rows=rowsFor(S.images[S.cur]);
   $('tableTitle').textContent=S.tableAll?'Medidas · todas as imagens':'Medidas · esta imagem';
-  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'linhas':'automática'}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
+  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.adjusted?'automática ajustada':r.c.manual?'linhas':'automática'}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
     || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
   [...tb.rows].forEach(tr=>{
     tr.onmouseenter=()=>{ if(+tr.dataset.img===S.cur){S.hover=+tr.dataset.i;draw();} };
@@ -1227,7 +1275,7 @@ function tableText(sep,comma,imgs){
   const lines=[['Imagem','Grupo','Célula',`Diâmetro da célula (${u})`,`Diâmetro cápsula + célula (${u})`,`Espessura da cápsula (${u})`,`Célula eixo maior (${u})`,`Célula eixo menor (${u})`,`Cápsula + célula eixo maior (${u})`,`Cápsula + célula eixo menor (${u})`,'Origem','Observação'].join(sep)];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
     const A=r.c.auto2;
-    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),A?f(toU(r.c.celMaj)):'',A?f(toU(r.c.celMin)):'',A?f(toU(r.c.capMaj)):'',A?f(toU(r.c.capMin)):'',r.c.manual?'linhas':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')',q(r.c.flags.filter(x=>x!=='medida à mão').join('; '))].join(sep)); }));
+    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),A?f(toU(r.c.celMaj)):'',A?f(toU(r.c.celMin)):'',A?f(toU(r.c.capMaj)):'',A?f(toU(r.c.capMin)):'',r.c.adjusted?'automática ajustada à mão':r.c.manual?'linhas':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')',q(r.c.flags.filter(x=>x!=='medida à mão'&&x!=='automática ajustada à mão').join('; '))].join(sep)); }));
   return lines;
 }
 $('dlCsv2').onclick=()=>$('dlCsv').click();
