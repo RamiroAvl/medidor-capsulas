@@ -124,27 +124,21 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
 
     <div class="card">
       <h2>Detecção automática</h2>
-      <label class="row"><span>Detectar células sozinho <span style="color:var(--muted);font-size:12px">(experimental)</span></span> <input type="checkbox" id="auto"></label>
+      <label class="row"><span>Detectar células sozinho</span> <input type="checkbox" id="auto"></label>
       <div id="autoOpts">
-      <label class="row">Limiar da cápsula <span class="v" id="capOffV">0</span></label>
-      <input type="range" id="capOff" min="-60" max="60" step="1" value="0">
-      <label class="row">Limiar do corpo celular <span class="v" id="bodyOffV">0</span></label>
-      <input type="range" id="bodyOff" min="-80" max="40" step="1" value="0">
-      <label class="row">Arredondamento mínimo <span class="v" id="minRoundV">0,70</span></label>
-      <input type="range" id="minRound" min="0.3" max="0.95" step="0.01" value="0.7">
-      <label class="row">Diâmetro cápsula + célula mín. <span><input type="number" id="minD" step="any" min="0"> <span class="u">px</span></span></label>
-      <label class="row">Diâmetro cápsula + célula máx. <span><input type="number" id="maxD" step="any" min="0"> <span class="u">px</span></span></label>
+      <label class="row">Diâmetro usado
+        <select id="metric2" style="font:inherit;padding:3px 6px;border:1px solid var(--line);border-radius:6px">
+          <option value="Eq">médio (da área)</option><option value="Maj">eixo maior</option><option value="Min">eixo menor</option>
+        </select></label>
+      <label class="row">Rigor contra o ruído <span class="v" id="sensV">4</span></label>
+      <input type="range" id="sens" min="2.5" max="8" step="0.5" value="4">
+      <label class="row">Cápsula + célula mín. <span><input type="number" id="minD" step="any" min="0"> <span class="u">px</span></span></label>
+      <label class="row">Cápsula + célula máx. <span><input type="number" id="maxD" step="any" min="0"> <span class="u">px</span></span></label>
+      <label class="row">Incluir brotos (células-filha) <input type="checkbox" id="includeBuds"></label>
       <label class="row">Ignorar células na borda <input type="checkbox" id="excludeBorder" checked></label>
-      <details>
-        <summary>Mais opções</summary>
-        <label class="row">Suavização <span class="v" id="blurV">1</span></label>
-        <input type="range" id="blur" min="0" max="4" step="1" value="1">
-        <label class="row">Inverter contraste <input type="checkbox" id="invert"></label>
-        <p class="hint">Use "inverter" só se a cápsula aparecer escura sobre fundo claro.</p>
-      </details>
-      <p class="hint">O limiar é calculado sozinho em cada imagem (método de Otsu); os controles deslizantes só deslocam esse valor. Mudar um controle refaz a análise e desfaz as exclusões manuais (as medidas feitas com linhas são mantidas).</p>
+      <p class="hint">Como funciona: o fundo granulado é medido em cada imagem e só entra o que é bem mais claro que o ruído. Células encostadas são separadas pela forma. Em cada célula, 90 raios saem do centro: a borda da cápsula é a meia altura entre o halo branco e o fundo; a borda da célula é o anel escuro da parede. Uma elipse é ajustada a cada borda (precisão abaixo de 1 pixel). Aumente o “rigor” se aparecerem detecções falsas; diminua se faltarem células.</p>
       </div>
-      <p class="hint" id="autoOff">Desligada: as medidas são feitas com “📏 Medir com linhas”. Ligue para testar se o site encontra as células sozinho nas suas imagens; funciona melhor com células separadas e corpo celular escuro.</p>
+      <p class="hint" id="autoOff">Desligada: as medidas são feitas só com “📏 Medir com linhas”.</p>
     </div>
   </aside>
 
@@ -314,70 +308,216 @@ function labelComps(mask,w,h){
   return {lab,pix,comps};
 }
 
-/* Analisa uma imagem em tons de cinza (Uint8Array).
-   p = {capOff, bodyOff, minD, maxD (px), minRound, excludeBorder, invert, blur} */
-function analyzeGray(gray,w,h,p){
-  let b=boxBlur(gray,w,h,p.blur|0);
-  if (p.invert) for (let i=0;i<b.length;i++) b[i]=255-b[i];
-  const hist=new Float64Array(256);
-  for (let i=0;i<b.length;i++){ const v=(b[i]+0.5)|0; hist[v<0?0:v>255?255:v]++; }
-  const tCap=otsu(hist)+(p.capOff||0);
-  const tBody=tCap+(p.bodyOff||0);
-  let bright=new Uint8Array(w*h);
-  for (let i=0;i<b.length;i++) bright[i]= b[i]>tCap ? 1:0;
-  bright=morph(morph(bright,w,h,true),w,h,false); // abertura: tira ruído e pontes finas
-  const filled=fillHoles(bright,w,h);
-  const {lab,pix,comps}=labelComps(filled,w,h);
-  const cells=[], idMap=new Int32Array(comps.length+1).fill(-1);
-  const minA=Math.PI*Math.pow((p.minD||0)/2,2), maxA=Math.PI*Math.pow((p.maxD||1e9)/2,2);
-  for (const c of comps){
-    if (c.area<Math.max(minA,12) || c.area>maxA) continue;
-    let maxR2=0;
-    for (let k=c.start;k<c.end;k++){
-      const q=pix[k], x=q%w, y=(q-x)/w, dx=x-c.cx, dy=y-c.cy, d2=dx*dx+dy*dy;
-      if(d2>maxR2) maxR2=d2;
-    }
-    const eqR=Math.sqrt(c.area/Math.PI), maxR=Math.sqrt(maxR2)+0.5;
-    const roundness=Math.min(1,(eqR/maxR)*(eqR/maxR));
-    const cell={cx:c.cx,cy:c.cy,area:c.area,dTot:2*eqR,roundness,body:null,flags:[],status:'ok',compId:c.id};
-    if (c.border && p.excludeBorder){ cell.status='rejected'; cell.flags.push('toca a borda da imagem'); }
-    else if (roundness<p.minRound){ cell.status='rejected'; cell.flags.push('forma irregular ou aglomerado'); }
-    if (cell.status==='ok') findBody(cell,c,lab,b,w,h,tBody);
-    idMap[c.id]=cells.length;
-    cells.push(cell);
+/* ===== Detecção automática v2: fundo corrigido + watershed + raios + elipses ===== */
+function chamferDT(mask,w,h){
+  // distância (em pixels) até o fundo, chanfro 3-4
+  const INF=1e9, d=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) d[i]=mask[i]?INF:0;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=y*w+x; if(!d[i]) continue;
+    let v=d[i];
+    if(x>0) v=Math.min(v,d[i-1]+3); else v=Math.min(v,3);
+    if(y>0){ v=Math.min(v,d[i-w]+3); if(x>0) v=Math.min(v,d[i-w-1]+4); if(x<w-1) v=Math.min(v,d[i-w+1]+4); } else v=Math.min(v,3);
+    d[i]=v; }
+  for(let y=h-1;y>=0;y--) for(let x=w-1;x>=0;x--){ const i=y*w+x; if(!d[i]) continue;
+    let v=d[i];
+    if(x<w-1) v=Math.min(v,d[i+1]+3); else v=Math.min(v,3);
+    if(y<h-1){ v=Math.min(v,d[i+w]+3); if(x<w-1) v=Math.min(v,d[i+w+1]+4); if(x>0) v=Math.min(v,d[i+w-1]+4); } else v=Math.min(v,3);
+    d[i]=v; }
+  for(let i=0;i<w*h;i++) d[i]/=3;
+  return d;
+}
+function sampleBil(img,w,h,x,y){
+  if(x<0||y<0||x>w-1.001||y>h-1.001) return NaN;
+  const x0=x|0, y0=y|0, fx=x-x0, fy=y-y0, i=y0*w+x0;
+  return img[i]*(1-fx)*(1-fy)+img[i+1]*fx*(1-fy)+img[i+w]*(1-fx)*fy+img[i+w+1]*fx*fy;
+}
+function solveLin(A,b){ // eliminação de Gauss com pivô
+  const n=b.length;
+  for(let c=0;c<n;c++){
+    let p=c; for(let r=c+1;r<n;r++) if(Math.abs(A[r][c])>Math.abs(A[p][c])) p=r;
+    [A[c],A[p]]=[A[p],A[c]]; [b[c],b[p]]=[b[p],b[c]];
+    if(Math.abs(A[c][c])<1e-12) return null;
+    for(let r=c+1;r<n;r++){ const f=A[r][c]/A[c][c]; for(let k=c;k<n;k++) A[r][k]-=f*A[c][k]; b[r]-=f*b[c]; }
   }
-  return {cells,lab,idMap,tCap,tBody};
+  const x=new Array(n).fill(0);
+  for(let r=n-1;r>=0;r--){ let s=b[r]; for(let k=r+1;k<n;k++) s-=A[r][k]*x[k]; x[r]=s/A[r][r]; }
+  return x;
+}
+/* ajuste de elipse por mínimos quadrados (cônica geral), pontos [[x,y],...] */
+function fitEllipse(pts){
+  if(pts.length<6) return null;
+  let mx=0,my=0; for(const p of pts){mx+=p[0];my+=p[1];} mx/=pts.length; my/=pts.length;
+  let sc=0; for(const p of pts) sc+=Math.hypot(p[0]-mx,p[1]-my); sc=sc/pts.length||1;
+  const A=[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]], B=[0,0,0,0,0];
+  for(const p of pts){ const x=(p[0]-mx)/sc, y=(p[1]-my)/sc, r=[x*x,x*y,y*y,x,y];
+    for(let i=0;i<5;i++){ B[i]+=r[i]; for(let j=0;j<5;j++) A[i][j]+=r[i]*r[j]; } }
+  const s=solveLin(A,B); if(!s) return null;
+  const [a,b,c,d,e]=s, f=-1, den=b*b-4*a*c;
+  if(den>=0) return null;
+  const x0=(2*c*d-b*e)/den, y0=(2*a*e-b*d)/den;
+  const f0=a*x0*x0+b*x0*y0+c*y0*y0+d*x0+e*y0+f;
+  const tr=a+c, dt=Math.sqrt((a-c)*(a-c)+b*b), l1=(tr+dt)/2, l2=(tr-dt)/2;
+  if(-f0/l1<=0||-f0/l2<=0) return null;
+  const ra=Math.sqrt(-f0/l2)*sc, rb=Math.sqrt(-f0/l1)*sc; // ra = semi-eixo maior
+  // direção do eixo maior: autovetor de l2
+  let ang = Math.abs(b)<1e-12 ? (a<=c?0:Math.PI/2) : Math.atan2(l2-a,b/2);
+  return {cx:x0*sc+mx, cy:y0*sc+my, a:ra, b:rb, ang};
+}
+function fitRobust(pts){
+  if(pts.length<8) return null;
+  // pré-filtro: distância ao centroide perto da mediana
+  let mx=0,my=0; pts.forEach(q=>{mx+=q[0];my+=q[1];}); mx/=pts.length; my/=pts.length;
+  const ds=pts.map(q=>Math.hypot(q[0]-mx,q[1]-my)), md=[...ds].sort((a,b)=>a-b)[ds.length>>1];
+  pts=pts.filter((q,i)=>ds[i]>0.6*md&&ds[i]<1.45*md);
+  let E=fitEllipse(pts); if(!E) return null;
+  for(let it=0;it<3;it++){
+    const rs=pts.map(q=>{ const th=Math.atan2(q[1]-E.cy,q[0]-E.cx); return Math.abs(Math.hypot(q[0]-E.cx,q[1]-E.cy)-ellipseRadius(E,th)); });
+    const med=[...rs].sort((a,b)=>a-b)[rs.length>>1];
+    const keep=pts.filter((q,i)=>rs[i]<=Math.max(0.6,2.5*med));
+    if(keep.length<8||keep.length===pts.length) break;
+    const E2=fitEllipse(keep); if(!E2) break; E=E2; pts=keep;
+  }
+  const rs=pts.map(q=>{ const th=Math.atan2(q[1]-E.cy,q[0]-E.cx); return Math.hypot(q[0]-E.cx,q[1]-E.cy)-ellipseRadius(E,th); });
+  E.n=pts.length; E.rms=Math.sqrt(rs.reduce((a,v)=>a+v*v,0)/rs.length); return E;
+}
+function ellipseRadius(E,th){ // raio da elipse na direção th a partir do centro
+  const t=th-E.ang, c=Math.cos(t), s=Math.sin(t);
+  return 1/Math.sqrt(c*c/(E.a*E.a)+s*s/(E.b*E.b));
 }
 
-function findBody(cell,c,lab,b,w,h,tBody){
-  const x0=Math.max(0,c.minx-1), y0=Math.max(0,c.miny-1), x1=Math.min(w-1,c.maxx+1), y1=Math.min(h-1,c.maxy+1);
-  const lw=x1-x0+1, lh=y1-y0+1, inC=new Uint8Array(lw*lh), dark=new Uint8Array(lw*lh);
-  for (let y=0;y<lh;y++) for (let x=0;x<lw;x++){
-    const gi=(y+y0)*w+(x+x0), li=y*lw+x;
-    if (lab[gi]===c.id){ inC[li]=1; if (b[gi]<tBody) dark[li]=1; }
-  }
-  const df=fillHoles(dark,lw,lh);
-  for (let i=0;i<df.length;i++) if(!inC[i]) df[i]=0;
-  const {lab:dl,pix:dp,comps:dcs}=labelComps(df,lw,lh);
-  let best=null, bestTouch=null;
-  for (const d of dcs){
-    if (d.area<Math.max(6,c.area*0.02)) continue;
-    let touch=false;
-    for (let k=d.start;k<d.end && !touch;k++){
-      const q=dp[k], x=q%lw, y=(q-x)/lw;
-      if (x===0||y===0||x===lw-1||y===lh-1) {touch=true;break;}
-      if (!inC[q-1]||!inC[q+1]||!inC[q-lw]||!inC[q+lw]) touch=true;
+/* p: {sens (k·σ), minDum, maxDum (diâmetro da cápsula, px), includeBuds, excludeBorder} */
+function analyzeV2(gray,w,h,p){
+  const N=w*h;
+  const f1=boxBlur(gray,w,h,1);
+  // fundo robusto: média local grande, recalculada sem os objetos claros
+  let bg=boxBlur(gray,w,h,20);
+  const res0=new Float32Array(N); for(let i=0;i<N;i++) res0[i]=f1[i]-bg[i];
+  const madOf=arr=>{ const step=Math.max(1,(arr.length/60000)|0), v=[]; for(let i=0;i<arr.length;i+=step) v.push(arr[i]); v.sort((a,b)=>a-b);
+    const med=v[v.length>>1]; const dv=v.map(x=>Math.abs(x-med)).sort((a,b)=>a-b); return [med,1.4826*dv[dv.length>>1]]; };
+  let [, sig0]=madOf(res0);
+  const tmp=new Float32Array(N); for(let i=0;i<N;i++) tmp[i]= res0[i]>3*sig0 ? bg[i] : f1[i];
+  bg=boxBlur(tmp,w,h,20);
+  const res=new Float32Array(N); for(let i=0;i<N;i++) res[i]=f1[i]-bg[i];
+  const [, sigma]=madOf(res);
+  const thr=Math.max(p.sens*sigma,4);
+  let mask=new Uint8Array(N); for(let i=0;i<N;i++) mask[i]=res[i]>thr?1:0;
+  mask=morph(morph(mask,w,h,true),w,h,false);
+  mask=fillHoles(mask,w,h);
+  const {lab,pix,comps}=labelComps(mask,w,h);
+  const dt=chamferDT(mask,w,h);
+  const seg=new Int32Array(N); // id do segmento (célula) de cada pixel
+  const segs=[];
+  const minA=Math.PI*Math.pow(p.minD/2,2)*0.5, maxA=Math.PI*Math.pow(p.maxD/2,2)*2.5;
+  for(const c of comps){
+    if(c.area<minA||c.area>maxA) continue;
+    // intensidade: o objeto precisa ter um halo bem acima do ruído
+    let mxr=0; for(let k=c.start;k<c.end;k++){ const v=res[pix[k]]; if(v>mxr) mxr=v; }
+    if(mxr<Math.max(2*thr,6*sigma)) continue;
+    // sementes: máximos locais da distância
+    let maxDT=0; for(let k=c.start;k<c.end;k++) if(dt[pix[k]]>maxDT) maxDT=dt[pix[k]];
+    const cand=[];
+    for(let k=c.start;k<c.end;k++){ const q=pix[k], v=dt[q]; if(v<Math.max(2.5,0.4*maxDT)) continue;
+      const x=q%w, y=(q-x)/w, r=Math.max(2,Math.round(v*0.6)); let ok=true;
+      for(let yy=Math.max(0,y-r);yy<=Math.min(h-1,y+r)&&ok;yy++) for(let xx=Math.max(0,x-r);xx<=Math.min(w-1,x+r);xx++){ const qq=yy*w+xx; if(lab[qq]===c.id && dt[qq]>v){ok=false;break;} }
+      if(ok) cand.push({x,y,v}); }
+    cand.sort((a,b)=>b.v-a.v);
+    const seeds=[];
+    for(const s of cand){ if(seeds.every(t=>Math.hypot(t.x-s.x,t.y-s.y)>Math.max(t.v,s.v)*0.9)) seeds.push(s); }
+    if(!seeds.length) continue;
+    const base=segs.length;
+    seeds.forEach((s,j)=>{ segs.push({comp:c.id,seedX:s.x,seedY:s.y,dtPeak:s.v,area:0}); seg[s.y*w+s.x]=base+j+1; });
+    // watershed por inundação: pixels em ordem decrescente de distância
+    const order=[]; for(let k=c.start;k<c.end;k++) order.push(pix[k]);
+    order.sort((a,b)=>dt[b]-dt[a]);
+    let pending=order;
+    for(let pass=0;pass<50&&pending.length;pass++){
+      const next=[];
+      for(const q of pending){ if(seg[q]) continue;
+        const x=q%w; let best=0, bd=-1;
+        const nb=[x>0?q-1:-1, x<w-1?q+1:-1, q-w, q+w];
+        for(const r of nb){ if(r<0||r>=N||lab[r]!==c.id||!seg[r]) continue; if(dt[r]>bd){bd=dt[r];best=seg[r];} }
+        if(best) seg[q]=best; else next.push(q); }
+      if(next.length===pending.length) break;
+      pending=next;
     }
-    if (!touch){ if(!best||d.area>best.area) best=d; }
-    else if (d.area<c.area*0.85){ if(!bestTouch||d.area>bestTouch.area) bestTouch=d; }
   }
-  let chosen=best;
-  if (!chosen && bestTouch){ chosen=bestTouch; cell.flags.push('cápsula muito fina ou corpo encostado na borda'); }
-  if (!chosen){ cell.flags.push('corpo celular não detectado'); return; }
-  const r=Math.sqrt(chosen.area/Math.PI);
-  cell.body={cx:chosen.cx+x0, cy:chosen.cy+y0, area:chosen.area, d:2*r};
-  cell.dBody=2*r;
-  cell.thick=(cell.dTot-cell.dBody)/2;
+  for(let i=0;i<N;i++) if(seg[i]) segs[seg[i]-1].area++;
+  // medir cada célula por raios
+  const NR=90, cells=[];
+  segs.forEach((S,si)=>{
+    const id=si+1;
+    // centro = centroide do segmento
+    let sx=0,sy=0,n=0, border=false;
+    const c=comps.find(cc=>cc.id===S.comp);
+    for(let k=c.start;k<c.end;k++){ const q=pix[k]; if(seg[q]!==id) continue; const x=q%w, y=(q-x)/w; sx+=x; sy+=y; n++; if(x<=1||y<=1||x>=w-2||y>=h-2) border=true; }
+    const cx=sx/n, cy=sy/n;
+    const req=Math.sqrt(n/Math.PI), rmax=req*1.8+6, step=0.25;
+    // referência do interior: mediana de f1 na parte profunda do segmento
+    const inner=[]; for(let k=c.start;k<c.end;k++){ const q=pix[k]; if(seg[q]===id && dt[q]>=0.55*S.dtPeak) inner.push(f1[q]); }
+    inner.sort((a,b)=>a-b); const interior=inner.length?inner[inner.length>>1]:f1[Math.round(cy)*w+Math.round(cx)];
+    const outPts=[], inPts=[]; let rayOk=0, contact=0;
+    for(let r=0;r<NR;r++){
+      const th=2*Math.PI*r/NR, dx=Math.cos(th), dy=Math.sin(th);
+      const vals=[], ts=[]; let stopped=false;
+      for(let t=0;t<=rmax;t+=step){ const x=cx+dx*t, y=cy+dy*t; const v=sampleBil(f1,w,h,x,y); if(isNaN(v)){stopped=true;break;}
+        const q=Math.round(y)*w+Math.round(x), sg=seg[q];
+        if(sg && sg!==id){ stopped=true; break; }           // entrou em outra célula
+        vals.push(v); ts.push(t); }
+      if(vals.length<8){ contact++; continue; }
+      // borda do objeto (máscara) neste raio
+      let rb=0, ib=0; for(let i=0;i<vals.length;i++){ const q=Math.round(cy+dy*ts[i])*w+Math.round(cx+dx*ts[i]); if(seg[q]===id){ rb=ts[i]; ib=i; } }
+      if(rb<2) continue;
+      let M=-1; for(let i=0;i<=ib;i++) if(vals[i]>M) M=vals[i];
+      const qb=Math.round(cy+dy*rb)*w+Math.round(cx+dx*rb), bgv=bg[qb];
+      if(M-bgv<thr) continue;
+      // borda externa (cápsula): ponto mais externo acima da meia altura entre o máximo e o fundo
+      const ho=bgv+0.5*(M-bgv); let io=-1;
+      for(let i=Math.min(vals.length-2,ib+Math.ceil(3/step));i>=0;i--) if(vals[i]>=ho){ io=i; break; }
+      if(io<0||io>=vals.length-1){ if(stopped) contact++; continue; }
+      const to=ts[io]+(vals[io]-ho)/(vals[io]-vals[io+1])*step;
+      if(stopped){ contact++; continue; }   // raio que encosta em outra célula: descarta
+      outPts.push([cx+dx*to,cy+dy*to]); rayOk++;
+      // borda da célula: o anel escuro (parede) entre o interior claro e o halo
+      const a0=to*0.4, a1=to-1.2; let im=-1;
+      for(let i=0;i<vals.length;i++){ if(ts[i]<a0||ts[i]>a1) continue; if(im<0||vals[i]<vals[im]) im=i; }
+      if(im>0 && im<vals.length-1 && ts[im]>a0+0.01 && ts[im]<a1-0.01){
+        const y0=vals[im-1], y1=vals[im], y2=vals[im+1], den=y0-2*y1+y2;
+        const off= den>1e-6 ? 0.5*(y0-y2)/den : 0;
+        // precisa ser um vale de verdade (mais escuro que o interior e o halo ao redor)
+        let outerMax=-1; for(let i=im;i<=io;i++) if(vals[i]>outerMax) outerMax=vals[i];
+        let innerMax=-1; for(let i=0;i<=im;i++) if(vals[i]>innerMax) innerMax=vals[i];
+        if(Math.min(outerMax,innerMax)-y1 > 0.15*sigma){ const ti=ts[im]+Math.max(-0.5,Math.min(0.5,off))*step; inPts.push([cx+dx*ti,cy+dy*ti]); }
+      }
+    }
+    const cap=fitRobust(outPts), cel=fitRobust(inPts);
+    const cell={cx,cy,seg:id,comp:S.comp,area:n,flags:[],status:'ok',auto2:true,cap,cel,
+      coverage:outPts.length/NR, contact:contact/NR, segArea:n};
+    if(!cap){ cell.status='rejected'; cell.flags.push('contorno da cápsula não encontrado'); }
+    else if(cap.n/NR<0.4){ cell.status='rejected'; cell.flags.push('contorno incompleto'); }
+    if(cap){
+      cell.cx=cap.cx; cell.cy=cap.cy;
+      // resíduo do ajuste (qualidade)
+      cell.rms=cap.rms; cell.coverage=cap.n/NR;
+      const dEq=2*Math.sqrt(cap.a*cap.b);
+      if(cell.status==='ok' && (dEq<p.minD||dEq>p.maxD)){ cell.status='rejected'; cell.flags.push('tamanho fora do intervalo'); }
+      if(cell.status==='ok' && cell.rms>Math.max(1.2,0.12*cap.a)){ cell.status='rejected'; cell.flags.push('forma irregular'); }
+      if(cell.status==='ok' && cap.a/cap.b>2.2){ cell.status='rejected'; cell.flags.push('forma muito alongada'); }
+    }
+    if(cell.status==='ok' && (!cel || cel.a>=cap.a || cel.b>=cap.b || cel.a<0.3*cap.a)){ cell.flags.push('borda da célula não encontrada'); cell.status='rejected'; }
+    if(border && p.excludeBorder && cell.status==='ok'){ cell.status='rejected'; cell.flags.push('toca a borda da imagem'); }
+    cells.push(cell);
+  });
+  // brotos: célula bem menor encostada em outra do mesmo aglomerado
+  cells.forEach(c=>{ if(c.status!=='ok'||!c.cap) return;
+    const sib=cells.filter(o=>o!==c && o.comp===c.comp && o.cap);
+    if(sib.some(o=>o.cap.a*o.cap.b>1.25*c.cap.a*c.cap.b)){ c.bud=true; if(!p.includeBuds){ c.status='rejected'; c.flags.push('broto (célula-filha)'); } else c.flags.push('broto'); } });
+  // valores finais
+  cells.forEach(c=>{ if(!c.cap) { c.dTot=2*Math.sqrt(c.area/Math.PI); return; }
+    c.capMaj=2*c.cap.a; c.capMin=2*c.cap.b; c.capEq=2*Math.sqrt(c.cap.a*c.cap.b);
+    if(c.cel){ c.celMaj=2*c.cel.a; c.celMin=2*c.cel.b; c.celEq=2*Math.sqrt(c.cel.a*c.cel.b); }
+  });
+  const idMap=new Int32Array(segs.length+1).fill(-1); cells.forEach((c,i)=>idMap[c.seg]=i);
+  return {cells,lab:seg,idMap,sigma,thr};
 }
 
 /* Converte valores (8 ou 16 bits) para 8 bits com esticamento por percentis */
@@ -403,10 +543,10 @@ const S={
   images:[], cur:-1, hover:-1, zoom:'fit', calib:null, mark:null, tableAll:false,
   scale:null, // µm por pixel
   nextGroup:'',
-  p:{auto:false, capOff:0, bodyOff:0, minRound:0.7, minD:10, maxD:600, excludeBorder:true, invert:false, blur:1}
+  p:{auto:true, sens:4, minD:2.5/(10/57.8343), maxD:15/(10/57.8343), includeBuds:false, excludeBorder:true, metric:'Eq'}
 };
 S.scale=10/57.8343; // escala padrão: 57,8343 pixels = 10 µm
-try{ const s=parseFloat(localStorage.getItem('cryptoScale')); if(s>0) S.scale=s; S.p.auto=localStorage.getItem('cryptoAuto')==='1'; }catch(e){}
+try{ const s=parseFloat(localStorage.getItem('cryptoScale')); if(s>0) S.scale=s; S.p.auto=localStorage.getItem('cryptoAuto2')!=='0'; }catch(e){}
 
 /* ---------- carregamento ---------- */
 async function decode(file){
@@ -419,6 +559,7 @@ async function decode(file){
     UTIF.decodeImage(buf,ifd);
     w=ifd.width; h=ifd.height;
     const bps=ifd.t258?ifd.t258[0]:8, spp=ifd.t277?ifd.t277[0]:1, intp=ifd.t262?ifd.t262[0]:1;
+    let metaScale=null; try{ const desc=String((ifd.t270||[''])[0]||''); const m=desc.match(/PhysicalSizeX="([0-9.eE+-]+)"/); if(m){ const u=(desc.match(/PhysicalSizeXUnit="([^"]*)"/)||[])[1]||'µm'; if(/m$/.test(u)&&!/^(nm|mm)$/.test(u)) metaScale=parseFloat(m[1]); } }catch(_){}
     if (bps===16 && spp===1){
       const d=ifd.data, v=new Uint16Array(w*h);
       for (let i=0;i<w*h;i++) v[i]=d[2*i]|(d[2*i+1]<<8);
@@ -434,7 +575,7 @@ async function decode(file){
     const id=new ImageData(w,h);
     for (let i=0;i<w*h;i++){ id.data[4*i]=id.data[4*i+1]=id.data[4*i+2]=gray[i]; id.data[4*i+3]=255; }
     disp.getContext('2d').putImageData(id,0,0);
-    return {w,h,gray,disp};
+    return {w,h,gray,disp,metaScale};
   }
   const bmp=await createImageBitmap(file);
   w=bmp.width; h=bmp.height;
@@ -472,7 +613,8 @@ async function analyzeIndex(i,keepCache){
     const data = (cache.idx===i) ? cache.data : await decode(im.file);
     if (keepCache) cache={idx:i,data};
     im.w=data.w; im.h=data.h;
-    im.res= S.p.auto ? analyzeGray(data.gray,data.w,data.h,S.p) : {cells:[],lab:null,idMap:null};
+    im.res= S.p.auto ? analyzeV2(data.gray,data.w,data.h,S.p) : {cells:[],lab:null,idMap:null};
+    im.metaScale=data.metaScale||null;
     im.excluded=new Set();
     im.err=null;
   }catch(e){ im.err=e.message||String(e); im.res=null; }
@@ -521,7 +663,10 @@ function syncUnitInputs(){
   $('minD').value=+toU(S.p.minD).toFixed(S.scale?2:0);
   $('maxD').value=+toU(S.p.maxD).toFixed(S.scale?1:0);
   $('scale').value=S.scale?+S.scale.toPrecision(5):'';
-  $('scaleHint').textContent=S.scale?`1 pixel = ${fmt(S.scale,4)} µm (guardado neste navegador).`:'Sem escala, as medidas saem em pixels.';
+  const im=S.images[S.cur], ms=im&&im.metaScale;
+  $('scaleHint').innerHTML=(S.scale?`1 pixel = ${fmt(S.scale,4)} µm (guardado neste navegador).`:'Sem escala, as medidas saem em pixels.')
+    + (ms && (!S.scale || Math.abs(ms-S.scale)/ms>0.002) ? `<br><span style="color:#b45309">O arquivo desta imagem diz ${fmt(ms,4)} µm/pixel.</span> <a href="#" id="useMeta">usar este valor</a>` : '');
+  const um=$('useMeta'); if(um) um.onclick=e=>{ e.preventDefault(); setScale(ms); };
 }
 
 /* ---------- células: automáticas + marcadas à mão ---------- */
@@ -531,7 +676,13 @@ function allCells(im){
     cx:m.cx, cy:m.cy, dTot:m.dTot, dBody:m.dBody, thick:(m.dTot-m.dBody)/2,
     roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, lines:m.lines, status:'ok', flags:['medida à mão'], manual:true
   }));
-  return im.res.cells.concat(man);
+  const k=S.p.metric||'Eq';
+  const auto=im.res.cells.map(c=>{
+    if(!c.auto2||!c.cap) return Object.assign({dTot:c.dTot||0,dBody:null,thick:null,roundness:null},c);
+    const dTot=c['cap'+k], dBody=c.cel?c['cel'+k]:null;
+    return Object.assign({},c,{dTot,dBody,thick:dBody!=null?(dTot-dBody)/2:null,roundness:c.cap.b/c.cap.a,body:c.cel?{cx:c.cel.cx,cy:c.cel.cy,d:dBody}:null});
+  });
+  return auto.concat(man);
 }
 function numbering(im){
   const m=new Map(); let n=0;
@@ -585,21 +736,23 @@ function draw(){
     ctx.setLineDash(rej?[4/k,3/k]:[]);
     ctx.lineWidth=hov?lw*2:lw;
     ctx.strokeStyle= ex||rej ? 'rgba(239,68,68,.9)' : c.manual ? '#a78bfa' : '#2dd4bf';
-    if(!c.manual) circle(c.cx,c.cy,c.dTot/2);
+    if(c.auto2 && c.cap){
+      ctx.beginPath(); ctx.ellipse(c.cap.cx,c.cap.cy,c.cap.a,c.cap.b,c.cap.ang,0,Math.PI*2); ctx.stroke();
+    } else if(!c.manual) circle(c.cx,c.cy,(c.dTot||0)/2);
     if (c.manual){
       ctx.globalAlpha=0.35; circle(c.cx,c.cy,c.dTot/2); ctx.strokeStyle='#f5b72a'; circle(c.body.cx,c.body.cy,c.body.d/2); ctx.globalAlpha=1;
       line(c.lines.c,'#a78bfa',hov?lw*2:lw*1.3,k); line(c.lines.b,'#f5b72a',hov?lw*2:lw*1.3,k);
-    } else if (c.body && !rej){
+    } else if (c.auto2 && c.cel && !rej){
       ctx.strokeStyle= ex ? 'rgba(239,68,68,.6)' : '#f5b72a';
-      circle(c.body.cx,c.body.cy,c.body.d/2);
+      ctx.beginPath(); ctx.ellipse(c.cel.cx,c.cel.cy,c.cel.a,c.cel.b,c.cel.ang,0,Math.PI*2); ctx.stroke();
     }
     ctx.setLineDash([]);
     if(!rej){
-      const fs=Math.max(10,12/k);
+      const fs=13/k;
       ctx.font=`600 ${fs}px -apple-system,Segoe UI,Roboto,sans-serif`;
       ctx.fillStyle= ex?'rgba(239,68,68,.95)':'#ffffff';
       ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=3/k;
-      const tx=c.cx+c.dTot/2*0.72, ty=c.cy-c.dTot/2*0.72, t=String(nb.get(i));
+      const R=(c.auto2&&c.cap)?c.cap.a:c.dTot/2, tx=c.cx+R*0.72+2/k, ty=c.cy-R*0.72-2/k, t=String(nb.get(i));
       ctx.strokeText(t,tx,ty); ctx.fillText(t,tx,ty);
     }
   });
@@ -720,7 +873,7 @@ cv.addEventListener('mousemove',ev=>{
       <span class="k">Diâmetro cápsula + célula:</span> ${fmt(toU(c.dTot))} ${u}<br>
       <span class="k">Diâmetro da célula:</span> ${fmt(toU(c.dBody))} ${u}<br>
       <span class="k">Espessura da cápsula:</span> <b>${fmt(toU(c.thick))} ${u}</b><br>
-      ${c.manual?'':`<span class="k">Arredondamento:</span> ${fmt(c.roundness)}<br>`}
+      ${c.auto2?`<span class="k">Célula, eixos:</span> ${fmt(toU(c.celMaj))} × ${fmt(toU(c.celMin))} ${u}<br><span class="k">Cápsula + célula, eixos:</span> ${fmt(toU(c.capMaj))} × ${fmt(toU(c.capMin))} ${u}<br>`:''}
       ${c.flags.length?`<span class="warn">${c.flags.join('; ')}</span><br>`:''}
       <span class="k" style="font-size:11.5px">clique para ${c.manual?'remover':ex?'incluir de novo':'excluir'}</span>`;
   }
@@ -813,16 +966,14 @@ function bindRange(id,fmtFn){
   el.addEventListener('input',()=>{ upd(); reanalyzeAll(); });
   upd();
 }
-bindRange('capOff',v=>(v>0?'+':'')+v);
-bindRange('bodyOff',v=>(v>0?'+':'')+v);
-bindRange('minRound',v=>fmt(v));
-bindRange('blur',v=>String(v));
+bindRange('sens',v=>fmt(v,1).replace(',0',''));
+$('includeBuds').addEventListener('change',e=>{ S.p.includeBuds=e.target.checked; reanalyzeAll(); });
+$('metric2').addEventListener('change',e=>{ S.p.metric=e.target.value; renderAll(); });
 $('minD').addEventListener('change',e=>{ S.p.minD=fromU(parseFloat(e.target.value)||0); reanalyzeAll(); });
 $('maxD').addEventListener('change',e=>{ S.p.maxD=fromU(parseFloat(e.target.value)||1e6); reanalyzeAll(); });
 $('excludeBorder').addEventListener('change',e=>{ S.p.excludeBorder=e.target.checked; reanalyzeAll(); });
-$('invert').addEventListener('change',e=>{ S.p.invert=e.target.checked; reanalyzeAll(); });
-function syncAuto(){ $('auto').checked=S.p.auto; $('autoOpts').style.display=S.p.auto?'':'none'; $('autoOff').style.display=S.p.auto?'none':''; }
-$('auto').addEventListener('change',e=>{ S.p.auto=e.target.checked; try{localStorage.setItem('cryptoAuto',S.p.auto?'1':'0');}catch(_){}
+function syncAuto(){ $('auto').checked=S.p.auto; $('includeBuds').checked=S.p.includeBuds; $('metric2').value=S.p.metric; $('autoOpts').style.display=S.p.auto?'':'none'; $('autoOff').style.display=S.p.auto?'none':''; }
+$('auto').addEventListener('change',e=>{ S.p.auto=e.target.checked; try{localStorage.setItem('cryptoAuto2',S.p.auto?'1':'0');}catch(_){}
   syncAuto(); reanalyzeAll(); });
 syncAuto();
 $('nextGroup').addEventListener('input',e=>{ S.nextGroup=e.target.value; });
@@ -898,12 +1049,12 @@ function rowsFor(im){
 }
 function renderTable(){
   const u=unit(), thead=$('tbl').tHead, tb=$('tbl').tBodies[0];
-  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro da célula (${u})</th><th>Diâmetro cápsula + célula (${u})</th><th>Espessura da cápsula (${u})</th><th>Arredondamento</th><th>Observação</th></tr>`;
+  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro da célula (${u})</th><th>Diâmetro cápsula + célula (${u})</th><th>Espessura da cápsula (${u})</th><th>Origem</th><th>Observação</th></tr>`;
   let rows=[];
   if(S.tableAll) S.images.forEach(im=>rows.push(...rowsFor(im)));
   else if(S.cur>=0) rows=rowsFor(S.images[S.cur]);
   $('tableTitle').textContent=S.tableAll?'Medidas · todas as imagens':'Medidas · esta imagem';
-  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'—':fmt(r.c.roundness)}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
+  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'linhas':'automática'}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
     || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
   [...tb.rows].forEach(tr=>{
     tr.onmouseenter=()=>{ if(+tr.dataset.img===S.cur){S.hover=+tr.dataset.i;draw();} };
@@ -1073,9 +1224,10 @@ $('dlPng').onclick=()=>{
 function tableText(sep,comma,imgs){
   const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=v.toFixed(3); return comma?s.replace('.',','):s; };
   const q=v=>{ v=String(v); return sep===';'&&/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const lines=[['Imagem','Grupo','Célula',`Diâmetro da célula (${u})`,`Diâmetro cápsula + célula (${u})`,`Espessura da cápsula (${u})`,'Arredondamento','Origem','Observação'].join(sep)];
+  const lines=[['Imagem','Grupo','Célula',`Diâmetro da célula (${u})`,`Diâmetro cápsula + célula (${u})`,`Espessura da cápsula (${u})`,`Célula eixo maior (${u})`,`Célula eixo menor (${u})`,`Cápsula + célula eixo maior (${u})`,`Cápsula + célula eixo menor (${u})`,'Origem','Observação'].join(sep)];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
-    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),r.c.manual?'':f(r.c.roundness),r.c.manual?'linhas':'automática',q(r.c.flags.filter(x=>x!=='medida à mão').join('; '))].join(sep)); }));
+    const A=r.c.auto2;
+    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),A?f(toU(r.c.celMaj)):'',A?f(toU(r.c.celMin)):'',A?f(toU(r.c.capMaj)):'',A?f(toU(r.c.capMin)):'',r.c.manual?'linhas':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')',q(r.c.flags.filter(x=>x!=='medida à mão').join('; '))].join(sep)); }));
   return lines;
 }
 $('dlCsv2').onclick=()=>$('dlCsv').click();
