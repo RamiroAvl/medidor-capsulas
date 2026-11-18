@@ -626,6 +626,8 @@ function showTip(ev,html){
 }
 const LEN=L=>Math.hypot(L.x2-L.x1,L.y2-L.y1);
 cv.addEventListener('mousedown',ev=>{
+  // tira o foco de campos de texto, para as setas e o Ctrl+Z voltarem a funcionar na imagem
+  const ae=document.activeElement; if(ae && ae!==document.body && ae.blur) ae.blur();
   if(!S.mark) return;
   ev.preventDefault();
   const [x,y]=imgCoords(ev), M=S.mark;
@@ -769,11 +771,12 @@ $('zFit').onclick=()=>setZoom('fit'); $('z1').onclick=()=>setZoom(1); $('z2').on
 $('prevBtn').onclick=()=>selectImage(S.cur-1); $('nextBtn').onclick=()=>selectImage(S.cur+1);
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape' && S.mark){ if(S.mark.step===2||S.mark.drag){ Object.assign(S.mark,{step:1,body:null,drag:null,clickMode:false,finishing:false}); updateMarkMsg(); draw(); } else setMark(false); return; }
+
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && S.cur>=0){ const im=S.images[S.cur];
     if(S.mark && S.mark.step===2){ Object.assign(S.mark,{step:1,body:null,drag:null}); }
     else if(im.manual.length) im.manual.pop();
     e.preventDefault(); renderAll(); updateMarkMsg(); return; }
-  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
   if(e.key==='ArrowRight')selectImage(S.cur+1); if(e.key==='ArrowLeft')selectImage(S.cur-1);
 });
 window.addEventListener('resize',()=>{ if(S.zoom==='fit') draw(); });
