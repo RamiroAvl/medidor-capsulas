@@ -96,6 +96,11 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
 .testline{font-size:13px;margin:10px 0 0;color:var(--ink)}
 .testline .k{color:var(--muted)}
 .gtable{margin-top:12px}
+.colpick{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 10px;font-size:13px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.colpick .cp-title{font-weight:600;color:var(--muted);margin-right:4px}
+.colpick #colboxes{display:contents}
+.colpick label{display:inline-flex;gap:5px;align-items:center;cursor:pointer;white-space:nowrap}
+.colpick .cp-opt{margin-left:auto;color:var(--muted)}
 
 </style>
 </head>
@@ -183,6 +188,11 @@ input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radiu
     <button id="copyBtn">Copiar tabela</button>
     <button class="primary" id="dlCsv2">⬇ Baixar planilha (Excel)</button>
     <span id="copied"></span>
+  </div>
+  <div class="colpick" id="colpick">
+    <span class="cp-title">Colunas da tabela e da planilha:</span>
+    <span id="colboxes"></span>
+    <label class="cp-opt"><input type="checkbox" id="perGroup"> uma aba por grupo no Excel</label>
   </div>
   <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
   <p class="hint">Nas medidas com linhas, cada diâmetro é o comprimento da linha traçada (para apagar uma, use Ctrl+Z, ou desligue “Medir com linhas” e clique nela). Na detecção automática, o diâmetro é o do círculo de mesma área. Espessura da cápsula = (diâmetro cápsula + célula − diâmetro da célula) / 2. Arredondamento = 1 para um círculo perfeito; aglomerados de células ficam abaixo de ~0,6 e são ignorados. A tabela copiada inclui só as células válidas.</p>
@@ -1097,15 +1107,60 @@ $('imglist').addEventListener('pointerdown',e=>{
 function rowsFor(im){
   return validCells(im).map(o=>({im,img:im.name,group:groupOf(im),n:o.n,i:o.i,c:o.c,ex:im.excluded.has(o.i)}));
 }
+/* ---------- colunas (tabela, cópia e Excel) ---------- */
+const VOL=d=>(4*3.14/3)*Math.pow(d/2,3);   // mesma fórmula da planilha do laboratório (π = 3,14)
+const COLS=[
+  {k:'img',   h:()=> 'Imagem', txt:r=>r.img},
+  {k:'group', h:()=> 'Grupo', txt:r=>r.group},
+  {k:'n',     h:()=> 'Nº da célula', num:r=>r.n, int:true},
+  {k:'dCel',  h:u=>`Diametro da célula (${u})`, num:r=>toU(r.c.dBody)},
+  {k:'vCel',  h:u=>`Volume da célula (${u}³)`, num:r=>VOL(toU(r.c.dBody)), f:(R,C)=>C.dCel&&`(4*3.14/3)*(${C.dCel}${R}/2)^3`},
+  {k:'dCap',  h:u=>`Diâmetro cápsula (${u})`, num:r=>toU(r.c.dTot)-toU(r.c.dBody)},
+  {k:'dTot',  h:u=>`Diâmetro célula+cápsula (${u})`, num:r=>toU(r.c.dTot), f:(R,C)=>C.dCel&&C.dCap&&`${C.dCel}${R}+${C.dCap}${R}`},
+  {k:'vTot',  h:u=>`Volume célula+cápsula (${u}³)`, num:r=>VOL(toU(r.c.dTot)), f:(R,C)=>C.dTot&&`(4*3.14/3)*(${C.dTot}${R}/2)^3`},
+  {k:'vCap',  h:u=>`Volume capsular (${u}³)`, num:r=>VOL(toU(r.c.dTot))-VOL(toU(r.c.dBody)), f:(R,C)=>C.vTot&&C.vCel&&`${C.vTot}${R}-${C.vCel}${R}`},
+  {k:'mVcap', h:u=>`média do volume capsular (${u}³)`, group:true},
+  {k:'thick', h:u=>`Espessura da cápsula (${u})`, num:r=>toU(r.c.thick)},
+  {k:'celMaj',h:u=>`Célula eixo maior (${u})`, num:r=>r.c.auto2?toU(r.c.celMaj):null},
+  {k:'celMin',h:u=>`Célula eixo menor (${u})`, num:r=>r.c.auto2?toU(r.c.celMin):null},
+  {k:'capMaj',h:u=>`Célula+cápsula eixo maior (${u})`, num:r=>r.c.auto2?toU(r.c.capMaj):null},
+  {k:'capMin',h:u=>`Célula+cápsula eixo menor (${u})`, num:r=>r.c.auto2?toU(r.c.capMin):null},
+];
+const COL_DEFAULT=['img','group','n','dCel','vCel','dCap','dTot','vTot','vCap','mVcap'];
+let colSel=new Set(COL_DEFAULT);
+try{ const v=JSON.parse(localStorage.getItem('cryptoCols')||'null'); if(Array.isArray(v)&&v.length) colSel=new Set(v); S.perGroup=localStorage.getItem('cryptoPerGroup')!=='0'; }catch(e){ S.perGroup=true; }
+if(S.perGroup==null) S.perGroup=true;
+function selCols(){ return COLS.filter(c=>colSel.has(c.k)); }
+function renderColPicker(){
+  const u=unit();
+  $('colboxes').innerHTML=COLS.map(c=>`<label><input type="checkbox" data-k="${c.k}" ${colSel.has(c.k)?'checked':''}> ${esc(c.h(u).replace(/ \([^)]*\)$/,''))}</label>`).join('');
+  $('colboxes').querySelectorAll('input').forEach(el=>el.onchange=()=>{ el.checked?colSel.add(el.dataset.k):colSel.delete(el.dataset.k);
+    try{ localStorage.setItem('cryptoCols',JSON.stringify([...colSel])); }catch(_){} renderTable(); });
+  $('perGroup').checked=S.perGroup;
+}
+$('perGroup').onchange=e=>{ S.perGroup=e.target.checked; try{localStorage.setItem('cryptoPerGroup',S.perGroup?'1':'0');}catch(_){} };
+function groupMeans(){ // média do volume capsular por grupo (células válidas, não excluídas)
+  const m=new Map();
+  S.images.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return; const g=r.group; if(!m.has(g)) m.set(g,[0,0]); const a=m.get(g); a[0]+=VOL(toU(r.c.dTot))-VOL(toU(r.c.dBody)); a[1]++; }));
+  const out=new Map(); m.forEach((a,g)=>out.set(g,a[0]/a[1])); return out;
+}
 function renderTable(){
   const u=unit(), thead=$('tbl').tHead, tb=$('tbl').tBodies[0];
-  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro da célula (${u})</th><th>Diâmetro cápsula + célula (${u})</th><th>Espessura da cápsula (${u})</th><th>Origem</th><th>Observação</th></tr>`;
+  const cols=selCols(), gm=groupMeans();
+  thead.innerHTML='<tr>'+cols.map(c=>`<th>${esc(c.h(u))}</th>`).join('')+'</tr>';
   let rows=[];
   if(S.tableAll) S.images.forEach(im=>rows.push(...rowsFor(im)));
   else if(S.cur>=0) rows=rowsFor(S.images[S.cur]);
   $('tableTitle').textContent=S.tableAll?'Medidas · todas as imagens':'Medidas · esta imagem';
-  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.adjusted?'automática ajustada':r.c.manual?'linhas':'automática'}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
-    || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
+  const seen=new Set();
+  tb.innerHTML=rows.map(r=>{
+    const firstOfGroup=!seen.has(r.group)&&!r.ex&&r.c.body; if(firstOfGroup) seen.add(r.group);
+    const tds=cols.map(c=>{
+      if(c.txt) return `<td style="text-align:left">${esc(c.txt(r))}</td>`;
+      if(c.group) return `<td>${firstOfGroup&&gm.has(r.group)?fmt(gm.get(r.group)):''}</td>`;
+      const v=c.num(r); return `<td>${c.int?v:fmt(v)}</td>`; }).join('');
+    return `<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}" title="${r.ex?'excluída manualmente':esc(r.c.flags.join('; '))}">${tds}</tr>`; }).join('')
+    || `<tr><td colspan="${cols.length||1}" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
   [...tb.rows].forEach(tr=>{
     tr.onmouseenter=()=>{ if(+tr.dataset.img===S.cur){S.hover=+tr.dataset.i;draw();} };
     tr.onmouseleave=()=>{ S.hover=-1; draw(); };
@@ -1273,57 +1328,67 @@ $('dlPng').onclick=()=>{
   img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(chartSVG);
 };
 function tableText(sep,comma,imgs){
-  const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=v.toFixed(3); return comma?s.replace('.',','):s; };
-  const q=v=>{ v=String(v); return sep===';'&&/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  const lines=[['Imagem','Grupo','Célula',`Diâmetro da célula (${u})`,`Diâmetro cápsula + célula (${u})`,`Espessura da cápsula (${u})`,`Célula eixo maior (${u})`,`Célula eixo menor (${u})`,`Cápsula + célula eixo maior (${u})`,`Cápsula + célula eixo menor (${u})`,'Origem','Observação'].join(sep)];
+  const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=(Math.round(v*1000)/1000).toFixed(3); return comma?s.replace('.',','):s; };
+  const cols=selCols(), gm=groupMeans(), seen=new Set();
+  const lines=[cols.map(c=>c.h(u)).join(sep)];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
-    const A=r.c.auto2;
-    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dBody)),f(toU(r.c.dTot)),f(toU(r.c.thick)),A?f(toU(r.c.celMaj)):'',A?f(toU(r.c.celMin)):'',A?f(toU(r.c.capMaj)):'',A?f(toU(r.c.capMin)):'',r.c.adjusted?'automática ajustada à mão':r.c.manual?'linhas':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')',q(r.c.flags.filter(x=>x!=='medida à mão'&&x!=='automática ajustada à mão').join('; '))].join(sep)); }));
+    const first=!seen.has(r.group); seen.add(r.group);
+    lines.push(cols.map(c=> c.txt?c.txt(r) : c.group?(first&&gm.has(r.group)?f(gm.get(r.group)):'') : c.int?String(c.num(r)) : f(c.num(r))).join(sep)); }));
   return lines;
 }
 $('dlCsv2').onclick=()=>$('dlCsv').click();
-const VOL=d=>(4*3.14/3)*Math.pow(d/2,3);   // mesma fórmula da planilha do laboratório (π = 3,14)
 function safeSheetName(n,used){
   let b=String(n).replace(/[\[\]:*?\/\\]/g,'-').slice(0,31)||'Grupo', k=b, i=2;
   while(used.has(k.toLowerCase())){ const suf=' ('+(i++)+')'; k=b.slice(0,31-suf.length)+suf; }
   used.add(k.toLowerCase()); return k;
 }
+function colLetter(i){ let s=''; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=(i-1-m)/26|0; } return s; }
 function buildXlsx(){
   if(typeof XLSX==='undefined'){ alertBox('O gerador de Excel ainda está carregando. Tente de novo em alguns segundos.'); return null; }
-  const u=unit(), r3=v=>Math.round(v*1000)/1000;
+  const u=unit(), r3=v=>Math.round(v*1000)/1000, cols=selCols();
+  if(!cols.length){ alertBox('Marque pelo menos uma coluna.'); return null; }
+  const L={}; cols.forEach((c,i)=>L[c.k]=colLetter(i));
   const groups=new Map();
-  S.images.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return; const g=groupOf(im); if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(r); }));
-  const wb=XLSX.utils.book_new(), used=new Set();
-  const heads=[`Diametro da célula`,`Volume da célula`,`Diâmetro cápsula`,`Diâmetro célula+cápsula`,`Volume célula+cápsula`,`Volume capsular`,`média do volume capsular`];
-  for(const [g,rows] of groups){
-    const ws={}, n=rows.length, last=2+n, cols='ABCDEFG';
-    ws.A1={t:'s',v:`${g} - N= ${n}`};
-    heads.forEach((h,k)=>ws[cols[k]+'2']={t:'s',v:h});
-    let sumF=0;
-    rows.forEach((r,i)=>{
-      const R=3+i, a=r3(toU(r.c.dBody)), d=r3(toU(r.c.dTot)), c=r3(d-a), vB=VOL(a), vE=VOL(a+c);
-      sumF+=vE-vB;
-      ws['A'+R]={t:'n',v:a,z:'0.000'};
-      ws['B'+R]={t:'n',f:`(4*3.14/3)*(A${R}/2)^3`,v:vB,z:'0.000'};
-      ws['C'+R]={t:'n',v:c,z:'0.000'};
-      ws['D'+R]={t:'n',f:`A${R}+C${R}`,v:a+c,z:'0.000'};
-      ws['E'+R]={t:'n',f:`(4*3.14/3)*(D${R}/2)^3`,v:vE,z:'0.000'};
-      ws['F'+R]={t:'n',f:`E${R}-B${R}`,v:vE-vB,z:'0.000'};
-    });
-    if(n) ws.G3={t:'n',f:`AVERAGE(F3:F${last})`,v:sumF/n,z:'0.000'};
-    ws['!ref']=`A1:G${Math.max(last,3)}`;
-    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}}];
-    ws['!cols']=[18,16,16,22,20,16,24].map(w=>({wch:w}));
-    XLSX.utils.book_append_sheet(wb,ws,safeSheetName(g,used));
-  }
-  // aba de conferência: de qual imagem e célula veio cada linha
-  const det=[['Grupo','Imagem','Nº da célula (no site)',`Diâmetro da célula (${u})`,`Diâmetro célula+cápsula (${u})`,`Diâmetro cápsula = total − célula (${u})`,`Espessura da cápsula (${u})`,`Célula eixo maior (${u})`,`Célula eixo menor (${u})`,`Célula+cápsula eixo maior (${u})`,`Célula+cápsula eixo menor (${u})`,'Origem']];
-  for(const [g,rows] of groups) rows.forEach(r=>{ const A=r.c.auto2;
-    det.push([g,r.img,r.n,r3(toU(r.c.dBody)),r3(toU(r.c.dTot)),r3(r3(toU(r.c.dTot))-r3(toU(r.c.dBody))),r3(toU(r.c.thick)),A?r3(toU(r.c.celMaj)):'',A?r3(toU(r.c.celMin)):'',A?r3(toU(r.c.capMaj)):'',A?r3(toU(r.c.capMin)):'',
-      r.c.adjusted?'automática ajustada à mão':r.c.manual?'linhas (manual)':'automática ('+({Eq:'diâmetro médio',Maj:'eixo maior',Min:'eixo menor'}[S.p.metric])+')']); });
-  const wd=XLSX.utils.aoa_to_sheet(det); wd['!cols']=det[0].map((h,k)=>({wch:k<2?22:18}));
-  XLSX.utils.book_append_sheet(wb,wd,safeSheetName('Conferência',used));
+  S.images.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return; const g=r.group; if(!groups.has(g)) groups.set(g,[]); groups.get(g).push(r); }));
   if(!groups.size) return null;
+  const wb=XLSX.utils.book_new(), used=new Set();
+  // valores-base arredondados como no ImageJ (3 casas): o resto sai deles
+  const base=r=>{ const a=r3(toU(r.c.dBody)), t=r3(toU(r.c.dTot)); return {a, cap:r3(t-a), t}; };
+  const valOf=(c,r)=>{ const b=base(r);
+    switch(c.k){ case 'dCel':return b.a; case 'vCel':return VOL(b.a); case 'dCap':return b.cap; case 'dTot':return b.a+b.cap;
+      case 'vTot':return VOL(b.a+b.cap); case 'vCap':return VOL(b.a+b.cap)-VOL(b.a); default:{ const v=c.num(r); return v==null?null:r3(v);} } };
+  const writeTable=(ws,rows,title,startRow)=>{
+    let R0=startRow;
+    if(title!=null){ ws['A'+R0]={t:'s',v:title}; R0++; }
+    cols.forEach(c=>ws[L[c.k]+R0]={t:'s',v:c.h(u)});
+    const first=R0+1, last=R0+rows.length;
+    let gFirst=new Map();
+    rows.forEach((r,i)=>{ const R=first+i;
+      cols.forEach(c=>{ const a=L[c.k]+R;
+        if(c.txt){ ws[a]={t:'s',v:c.txt(r)}; return; }
+        if(c.group){ return; }
+        if(c.int){ ws[a]={t:'n',v:c.num(r)}; return; }
+        const v=valOf(c,r); if(v==null) return;
+        const f=c.f&&c.f(R,L);
+        ws[a]=f?{t:'n',f,v,z:'0.000'}:{t:'n',v,z:'0.000'};
+      });
+      if(!gFirst.has(r.group)) gFirst.set(r.group,[R,R]); else gFirst.get(r.group)[1]=R;
+    });
+    if(L.mVcap) gFirst.forEach(([a,b],g)=>{ const rs=rows.filter(r=>r.group===g), v=rs.reduce((s,r)=>s+valOf({k:'vCap'},r),0)/rs.length;
+      ws[L.mVcap+a]= L.vCap?{t:'n',f:`AVERAGE(${L.vCap}${a}:${L.vCap}${b})`,v,z:'0.000'}:{t:'n',v,z:'0.000'}; });
+    return last;
+  };
+  const finish=(ws,lastRow,name,merge)=>{
+    ws['!ref']=`A1:${colLetter(cols.length-1)}${Math.max(lastRow,2)}`;
+    if(merge) ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:Math.max(0,cols.length-1)}}];
+    ws['!cols']=cols.map(c=>({wch:Math.max(12,Math.min(30,c.h(u).length+2))}));
+    XLSX.utils.book_append_sheet(wb,ws,safeSheetName(name,used));
+  };
+  if(S.perGroup){
+    for(const [g,rows] of groups){ const ws={}; const last=writeTable(ws,rows,`${g} - N= ${rows.length}`,1); finish(ws,last,g,true); }
+  } else {
+    const all=[...groups.values()].flat(); const ws={}; const last=writeTable(ws,all,null,1); finish(ws,last,'Medidas',false);
+  }
   return XLSX.write(wb,{type:'array',bookType:'xlsx'});
 }
 function alertBox(msg){ $('copied').textContent=msg; setTimeout(()=>$('copied').textContent='',5000); }
@@ -1346,7 +1411,7 @@ $('copyBtn').onclick=async()=>{
 function renderAll(){
   const im=S.images[S.cur];
   $('imgTitle').textContent= im ? `${im.name}${im.err?' — erro: '+im.err:''}` : 'Nenhuma imagem';
-  renderList(); draw(); renderTable(); renderStats(); syncUnitInputs(); renderCompare(); updateMarkMsg();
+  renderColPicker(); renderList(); draw(); renderTable(); renderStats(); syncUnitInputs(); renderCompare(); updateMarkMsg();
 }
 renderAll();
 </script>
