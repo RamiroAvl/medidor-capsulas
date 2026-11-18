@@ -36,8 +36,10 @@ button:hover{border-color:#aab3af}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button.primary:hover{filter:brightness(1.08)}
 button.on{background:var(--accent-soft);border-color:var(--accent)}
-.imglist{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto}
-.imglist li{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.imglist{list-style:none;margin:8px 0 0;padding:0;max-height:320px;overflow:auto}
+.imglist li{display:flex;flex-direction:column;gap:3px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.imglist li .top{display:flex;justify-content:space-between;gap:8px}
+.imglist li input.grp{width:100%;font:inherit;font-size:12px;padding:2px 6px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--ink)}
 .imglist li:hover{background:#f0f2f1}
 .imglist li.cur{background:var(--accent-soft)}
 .imglist li .n{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -79,6 +81,18 @@ tr.hl td{background:#fff6dd}
 .seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+input.txt{font:inherit;padding:4px 7px;border:1px solid var(--line);border-radius:6px;width:100%}
+.calib.mark{background:#f1edff;border-color:#c9bdf7}
+.cmp{padding:0 22px 40px}
+.cmp .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+.cmp select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:7px;background:#fff}
+.chartcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.chartcard svg{display:block;width:100%;max-width:900px;height:auto;margin:0 auto}
+.chartcard svg .pt{cursor:pointer}
+.testline{font-size:13px;margin:10px 0 0;color:var(--ink)}
+.testline .k{color:var(--muted)}
+.gtable{margin-top:12px}
+
 </style>
 </head>
 <body>
@@ -93,6 +107,8 @@ details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
       <h2>Imagens</h2>
       <div class="drop" id="drop"><strong>Escolher imagens</strong><br>ou arraste aqui (JPG, PNG, TIF)</div>
       <input type="file" id="file" accept="image/*,.tif,.tiff" multiple hidden>
+      <label class="row" style="margin-top:10px;flex-direction:column;align-items:stretch;gap:4px">Grupo das próximas imagens <input class="txt" id="nextGroup" list="groupList" placeholder="ex.: H99 controle"></label>
+      <datalist id="groupList"></datalist>
       <ul class="imglist" id="imglist"></ul>
     </div>
 
@@ -121,15 +137,16 @@ details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
         <label class="row">Inverter contraste <input type="checkbox" id="invert"></label>
         <p class="hint">Use "inverter" só se a cápsula aparecer escura sobre fundo claro.</p>
       </details>
-      <p class="hint">O limiar é calculado sozinho em cada imagem (método de Otsu); os controles deslizantes só deslocam esse valor. Mudar um controle refaz a análise e desfaz as exclusões manuais.</p>
+      <p class="hint">O limiar é calculado sozinho em cada imagem (método de Otsu); os controles deslizantes só deslocam esse valor. Mudar um controle refaz a análise e desfaz as exclusões manuais (as células marcadas à mão são mantidas).</p>
     </div>
   </aside>
 
   <section class="viewer">
     <div class="toolbar">
       <span class="title" id="imgTitle">Nenhuma imagem</span>
-      <span class="legend"><span><i style="background:#2dd4bf"></i>cápsula</span><span><i style="background:var(--body)"></i>corpo</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
+      <span class="legend"><span><i style="background:#2dd4bf"></i>cápsula</span><span><i style="background:var(--body)"></i>corpo</span><span><i style="background:#a78bfa"></i>marcada à mão</span><span><i style="background:#ef4444"></i>excluída / ignorada</span></span>
       <span class="sp"></span>
+      <button id="markBtn" title="Desenhar uma célula que não foi detectada">✚ Marcar célula à mão</button>
       <span class="seg">
         <button id="zFit" class="on">Ajustar</button><button id="z1">100%</button><button id="z2">200%</button>
       </span>
@@ -140,9 +157,13 @@ details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
       <span id="calibInput" style="display:none">Comprimento: <input type="number" id="calibLen" step="any" min="0" value="10"> µm <button class="primary" id="calibOk">Aplicar</button></span>
       <button id="calibCancel">Cancelar</button>
     </div>
+    <div class="calib mark" id="markBox">
+      <span id="markMsg"></span>
+      <button id="markDone">Concluir</button>
+    </div>
     <div id="stage">
       <canvas id="cv" width="10" height="10"></canvas>
-      <div id="empty">Envie uma ou mais imagens para começar.<br>Passe o mouse sobre uma célula para ver as medidas; clique para excluí-la ou incluí-la de novo.</div>
+      <div id="empty">Envie uma ou mais imagens para começar.<br>Passe o mouse sobre uma célula para ver as medidas; clique para excluí-la ou incluí-la de novo.<br>Se uma célula não for encontrada, use “Marcar célula à mão”.</div>
       <div id="busy">analisando…</div>
     </div>
   </section>
@@ -160,6 +181,30 @@ details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
   </div>
   <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
   <p class="hint">Diâmetros são equivalentes ao círculo de mesma área. Espessura da cápsula = (diâmetro total − diâmetro do corpo) / 2. Arredondamento = 1 para um círculo perfeito; aglomerados de células ficam abaixo de ~0,6 e são ignorados. A tabela copiada inclui só as células válidas.</p>
+</section>
+
+<section class="cmp">
+  <div class="rowhead">
+    <h2>Comparar grupos</h2>
+    <span class="sp"></span>
+    <button id="dlPng">Baixar gráfico (PNG)</button>
+    <button id="dlSvg">Baixar gráfico (SVG)</button>
+    <button id="dlCsv">Baixar dados (CSV)</button>
+  </div>
+  <div class="controls">
+    <label>Medida <select id="metric">
+      <option value="thick">Espessura da cápsula</option>
+      <option value="dBody">Diâmetro do corpo</option>
+      <option value="dTot">Diâmetro total</option>
+      <option value="ratio">Razão diâmetro total / corpo</option>
+    </select></label>
+  </div>
+  <div class="chartcard">
+    <div id="chart"></div>
+    <p class="testline" id="testline"></p>
+  </div>
+  <div class="tablewrap gtable"><table id="gtbl"><thead></thead><tbody></tbody></table></div>
+  <p class="hint">Dê um grupo a cada imagem (cepa, condição, tempo…) na lista de imagens à esquerda. Cada ponto é uma célula; clique num ponto para abrir a imagem dela. Caixa = 1º a 3º quartil, linha = mediana, hastes = até 1,5 × o intervalo interquartil. O teste (Mann-Whitney para 2 grupos, Kruskal-Wallis para 3 ou mais) trata cada célula como independente; serve para explorar os dados, e a estatística da publicação deve considerar as réplicas biológicas.</p>
 </section>
 
 <div id="tip"></div>
@@ -343,9 +388,11 @@ function stretchToU8(vals,maxVal){
 /* ===== Interface ===== */
 const $=id=>document.getElementById(id);
 const cv=$('cv'), ctx=cv.getContext('2d'), stage=$('stage'), tip=$('tip');
+const NO_GROUP='Sem grupo';
 const S={
-  images:[], cur:-1, hover:-1, zoom:'fit', calib:null, tableAll:false,
+  images:[], cur:-1, hover:-1, zoom:'fit', calib:null, mark:null, tableAll:false,
   scale:null, // µm por pixel
+  nextGroup:'',
   p:{capOff:0, bodyOff:0, minRound:0.7, minD:10, maxD:600, excludeBorder:true, invert:false, blur:1}
 };
 try{ const s=parseFloat(localStorage.getItem('cryptoScale')); if(s>0) S.scale=s; }catch(e){}
@@ -392,10 +439,10 @@ async function addFiles(files){
   const list=[...files].filter(f=>/image|tiff/.test(f.type)||/\.(tiff?|png|jpe?g|bmp|gif|webp)$/i.test(f.name));
   if(!list.length) return;
   const first=S.images.length;
-  for (const f of list) S.images.push({name:f.name,file:f,res:null,excluded:new Set(),err:null});
+  const g=(S.nextGroup||'').trim();
+  for (const f of list) S.images.push({name:f.name,file:f,res:null,excluded:new Set(),manual:[],group:g,err:null});
   renderList();
   await selectImage(first);
-  // analisa as demais em segundo plano
   for (let i=first;i<S.images.length;i++){ if(!S.images[i].res && !S.images[i].err) await analyzeIndex(i,false); }
   renderAll();
 }
@@ -424,6 +471,7 @@ async function analyzeIndex(i,keepCache){
 async function selectImage(i){
   if (i<0||i>=S.images.length) return;
   S.cur=i; S.hover=-1;
+  if (S.mark) S.mark.step=1;
   busy(true);
   try{
     await getData(i);
@@ -455,6 +503,7 @@ const unit=()=>S.scale?'µm':'px';
 const toU=px=>S.scale?px*S.scale:px;
 const fromU=v=>S.scale?v/S.scale:v;
 function fmt(v,d=2){ if(v==null||!isFinite(v)) return '—'; return v.toFixed(d).replace('.',','); }
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function syncUnitInputs(){
   document.querySelectorAll('.u').forEach(e=>e.textContent=unit());
   $('minD').value=+toU(S.p.minD).toFixed(S.scale?2:0);
@@ -463,12 +512,29 @@ function syncUnitInputs(){
   $('scaleHint').textContent=S.scale?`1 pixel = ${fmt(S.scale,4)} µm (guardado neste navegador).`:'Sem escala, as medidas saem em pixels.';
 }
 
+/* ---------- células: automáticas + marcadas à mão ---------- */
+function allCells(im){
+  if(!im||!im.res) return [];
+  const man=im.manual.map(m=>({
+    cx:m.cx, cy:m.cy, dTot:m.dTot, dBody:m.dBody, thick:(m.dTot-m.dBody)/2,
+    roundness:null, body:{cx:m.bx,cy:m.by,d:m.dBody}, status:'ok', flags:['marcada à mão'], manual:true
+  }));
+  return im.res.cells.concat(man);
+}
+function numbering(im){
+  const m=new Map(); let n=0;
+  allCells(im).forEach((c,i)=>{ if(c.status==='ok') m.set(i,++n); });
+  return m;
+}
+function groupOf(im){ return (im.group||'').trim()||NO_GROUP; }
+
 /* ---------- desenho ---------- */
 function dispScale(){
   const im=S.images[S.cur]; if(!im||!im.w) return 1;
   if (S.zoom==='fit') return Math.min((stage.clientWidth-2)/im.w,(stage.clientHeight-2)/im.h);
   return S.zoom;
 }
+function circle(x,y,r){ ctx.beginPath(); ctx.arc(x,y,Math.max(r,0.5),0,Math.PI*2); ctx.stroke(); }
 function draw(){
   const im=S.images[S.cur];
   $('empty').style.display=im?'none':'flex';
@@ -481,15 +547,15 @@ function draw(){
   if(!im.res) return;
   ctx.setTransform(k,0,0,k,0,0);
   const lw=1.6/k, nb=numbering(im);
-  im.res.cells.forEach((c,i)=>{
+  allCells(im).forEach((c,i)=>{
     const ex=im.excluded.has(i), rej=c.status!=='ok', hov=i===S.hover;
     ctx.setLineDash(rej?[4/k,3/k]:[]);
     ctx.lineWidth=hov?lw*2:lw;
-    ctx.strokeStyle= ex||rej ? 'rgba(239,68,68,.9)' : '#2dd4bf';
-    ctx.beginPath(); ctx.arc(c.cx,c.cy,c.dTot/2,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle= ex||rej ? 'rgba(239,68,68,.9)' : c.manual ? '#a78bfa' : '#2dd4bf';
+    circle(c.cx,c.cy,c.dTot/2);
     if (c.body && !rej){
       ctx.strokeStyle= ex ? 'rgba(239,68,68,.6)' : '#f5b72a';
-      ctx.beginPath(); ctx.arc(c.body.cx,c.body.cy,c.body.d/2,0,Math.PI*2); ctx.stroke();
+      circle(c.body.cx,c.body.cy,c.body.d/2);
     }
     ctx.setLineDash([]);
     if(!rej){
@@ -497,10 +563,18 @@ function draw(){
       ctx.font=`600 ${fs}px -apple-system,Segoe UI,Roboto,sans-serif`;
       ctx.fillStyle= ex?'rgba(239,68,68,.95)':'#ffffff';
       ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=3/k;
-      const tx=c.cx+c.dTot/2*0.72, ty=c.cy-c.dTot/2*0.72;
-      ctx.strokeText(String(nb.get(i)),tx,ty); ctx.fillText(String(nb.get(i)),tx,ty);
+      const tx=c.cx+c.dTot/2*0.72, ty=c.cy-c.dTot/2*0.72, t=String(nb.get(i));
+      ctx.strokeText(t,tx,ty); ctx.fillText(t,tx,ty);
     }
   });
+  // marcação manual em andamento
+  const M=S.mark;
+  if (M){
+    ctx.lineWidth=lw*1.3; ctx.setLineDash([5/k,3/k]);
+    if (M.cap){ ctx.strokeStyle='#a78bfa'; circle(M.cap.cx,M.cap.cy,M.cap.r); }
+    if (M.drag){ ctx.strokeStyle= M.step===1?'#a78bfa':'#f5b72a'; circle(M.drag.cx,M.drag.cy,M.drag.r); }
+    ctx.setLineDash([]);
+  }
   ctx.setTransform(1,0,0,1,0,0);
   if (S.calib && S.calib.pts.length){
     ctx.strokeStyle='#facc15'; ctx.fillStyle='#facc15'; ctx.lineWidth=2;
@@ -508,17 +582,6 @@ function draw(){
     pts.forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],4,0,7);ctx.fill();});
     if(pts.length===2){ctx.beginPath();ctx.moveTo(...pts[0]);ctx.lineTo(...pts[1]);ctx.stroke();}
   }
-}
-/* número visível de uma célula válida (só conta as aceitas) */
-function num(i){
-  const cells=S.images[S.cur].res.cells; let n=0;
-  for (let j=0;j<=i;j++) if(cells[j].status==='ok') n++;
-  return n;
-}
-function numbering(im){
-  const m=new Map(); let n=0;
-  im.res.cells.forEach((c,i)=>{ if(c.status==='ok') m.set(i,++n); });
-  return m;
 }
 
 /* ---------- interação no canvas ---------- */
@@ -528,39 +591,74 @@ function imgCoords(ev){
 }
 function cellAt(x,y){
   const im=S.images[S.cur]; if(!im||!im.res) return -1;
-  x=Math.floor(x); y=Math.floor(y);
-  if(x<0||y<0||x>=im.w||y>=im.h) return -1;
-  const id=im.res.lab[y*im.w+x];
+  const nAuto=im.res.cells.length;
+  for (let j=im.manual.length-1;j>=0;j--){
+    const m=im.manual[j]; if (Math.hypot(x-m.cx,y-m.cy)<=m.dTot/2) return nAuto+j;
+  }
+  const xi=Math.floor(x), yi=Math.floor(y);
+  if(xi<0||yi<0||xi>=im.w||yi>=im.h) return -1;
+  const id=im.res.lab[yi*im.w+xi];
   return id? im.res.idMap[id] : -1;
 }
-cv.addEventListener('mousemove',ev=>{
-  if (S.calib) return;
-  const [x,y]=imgCoords(ev), i=cellAt(x,y);
-  if(i!==S.hover){ S.hover=i; draw(); highlightRow(); }
-  if(i<0){ tip.style.display='none'; return; }
-  const im=S.images[S.cur], c=im.res.cells[i], u=unit();
-  let html='';
-  if(c.status!=='ok'){
-    html=`<b>Ignorada</b><br><span class="warn">${c.flags.join('; ')}</span><br><span class="k">Diâmetro:</span> ${fmt(toU(c.dTot))} ${u}`;
-  } else {
-    const n=numbering(im).get(i), ex=im.excluded.has(i);
-    html=`<b>Célula ${n}</b>${ex?' <span class="warn">(excluída)</span>':''}<br>
-      <span class="k">Diâmetro total:</span> ${fmt(toU(c.dTot))} ${u}<br>
-      <span class="k">Diâmetro do corpo:</span> ${fmt(toU(c.dBody))} ${u}<br>
-      <span class="k">Espessura da cápsula:</span> <b>${fmt(toU(c.thick))} ${u}</b><br>
-      <span class="k">Arredondamento:</span> ${fmt(c.roundness)}
-      ${c.flags.length?`<br><span class="warn">${c.flags.join('; ')}</span>`:''}
-      <br><span class="k" style="font-size:11.5px">clique para ${ex?'incluir de novo':'excluir'}</span>`;
-  }
+function showTip(ev,html){
   tip.innerHTML=html; tip.style.display='block';
   const tw=tip.offsetWidth, th=tip.offsetHeight;
   let lx=ev.clientX+16, ly=ev.clientY+16;
   if(lx+tw>innerWidth-8) lx=ev.clientX-tw-16;
   if(ly+th>innerHeight-8) ly=ev.clientY-th-16;
   tip.style.left=lx+'px'; tip.style.top=ly+'px';
+}
+cv.addEventListener('mousedown',ev=>{
+  if(!S.mark) return;
+  ev.preventDefault();
+  const [x,y]=imgCoords(ev);
+  S.mark.drag={cx:x,cy:y,r:0};
 });
-cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
+cv.addEventListener('mousemove',ev=>{
+  if (S.calib) return;
+  if (S.mark){
+    const [x,y]=imgCoords(ev);
+    if (S.mark.drag){ S.mark.drag.r=Math.hypot(x-S.mark.drag.cx,y-S.mark.drag.cy); draw(); }
+    if (S.mark.drag) showTip(ev,`raio: ${fmt(toU(S.mark.drag.r))} ${unit()} · diâmetro: ${fmt(toU(2*S.mark.drag.r))} ${unit()}`);
+    else tip.style.display='none';
+    return;
+  }
+  const [x,y]=imgCoords(ev), i=cellAt(x,y);
+  if(i!==S.hover){ S.hover=i; draw(); highlightRow(); }
+  if(i<0){ tip.style.display='none'; return; }
+  const im=S.images[S.cur], c=allCells(im)[i], u=unit();
+  let html='';
+  if(c.status!=='ok'){
+    html=`<b>Ignorada</b><br><span class="warn">${c.flags.join('; ')}</span><br><span class="k">Diâmetro:</span> ${fmt(toU(c.dTot))} ${u}<br><span class="k" style="font-size:11.5px">se for uma célula, use “Marcar célula à mão”</span>`;
+  } else {
+    const n=numbering(im).get(i), ex=im.excluded.has(i);
+    html=`<b>Célula ${n}</b>${ex?' <span class="warn">(excluída)</span>':''}<br>
+      <span class="k">Diâmetro total:</span> ${fmt(toU(c.dTot))} ${u}<br>
+      <span class="k">Diâmetro do corpo:</span> ${fmt(toU(c.dBody))} ${u}<br>
+      <span class="k">Espessura da cápsula:</span> <b>${fmt(toU(c.thick))} ${u}</b><br>
+      ${c.manual?'':`<span class="k">Arredondamento:</span> ${fmt(c.roundness)}<br>`}
+      ${c.flags.length?`<span class="warn">${c.flags.join('; ')}</span><br>`:''}
+      <span class="k" style="font-size:11.5px">clique para ${c.manual?'remover':ex?'incluir de novo':'excluir'}</span>`;
+  }
+  showTip(ev,html);
+});
+cv.addEventListener('mouseup',ev=>{
+  const M=S.mark; if(!M||!M.drag) return;
+  const d=M.drag; M.drag=null; tip.style.display='none';
+  if (d.r<2){ draw(); return; }           // clique sem arrastar: ignora
+  if (M.step===1){ M.cap={cx:d.cx,cy:d.cy,r:d.r}; M.step=2; }
+  else {
+    if (d.r>=M.cap.r){ $('markMsg').innerHTML='<b>O corpo precisa ser menor que a cápsula.</b> Arraste de novo, do centro até a borda do <b>corpo celular</b> (amarelo).'; draw(); return; }
+    const im=S.images[S.cur];
+    im.manual.push({cx:M.cap.cx,cy:M.cap.cy,dTot:2*M.cap.r,bx:d.cx,by:d.cy,dBody:2*d.r});
+    M.cap=null; M.step=1;
+    renderAll(); return;
+  }
+  updateMarkMsg(); draw();
+});
+cv.addEventListener('mouseleave',()=>{ tip.style.display='none'; if(S.mark&&S.mark.drag){S.mark.drag=null;draw();} if(S.hover!==-1){S.hover=-1;draw();highlightRow();} });
 cv.addEventListener('click',ev=>{
+  if (S.mark) return;
   const [x,y]=imgCoords(ev);
   if (S.calib){
     if(S.calib.pts.length<2){ S.calib.pts.push([x,y]); draw(); }
@@ -568,14 +666,37 @@ cv.addEventListener('click',ev=>{
     return;
   }
   const i=cellAt(x,y), im=S.images[S.cur];
-  if(i<0||im.res.cells[i].status!=='ok') return;
-  im.excluded.has(i)?im.excluded.delete(i):im.excluded.add(i);
+  if(i<0) return;
+  const c=allCells(im)[i];
+  if(c.status!=='ok') return;
+  if(c.manual){ im.manual.splice(i-im.res.cells.length,1); S.hover=-1; tip.style.display='none'; }
+  else im.excluded.has(i)?im.excluded.delete(i):im.excluded.add(i);
   renderAll();
 });
+
+/* ---------- marcação manual ---------- */
+function updateMarkMsg(){
+  const M=S.mark; if(!M) return;
+  $('markMsg').innerHTML = M.step===1
+    ? '<b>Passo 1 de 2:</b> arraste do <b>centro</b> da célula até a <b>borda externa da cápsula</b> (roxo).'
+    : '<b>Passo 2 de 2:</b> agora arraste do centro até a <b>borda do corpo celular</b> (amarelo). <span style="color:var(--muted)">Esc cancela esta célula.</span>';
+}
+function setMark(on){
+  if(on && S.cur<0) return;
+  S.mark = on ? {step:1,cap:null,drag:null} : null;
+  if(on){ S.calib=null; $('calibBox').classList.remove('show'); }
+  $('markBox').classList.toggle('show',!!on);
+  $('markBtn').classList.toggle('on',!!on);
+  cv.style.cursor= on?'cell':'crosshair';
+  updateMarkMsg(); tip.style.display='none'; draw();
+}
+$('markBtn').onclick=()=>setMark(!S.mark);
+$('markDone').onclick=()=>setMark(false);
 
 /* ---------- calibração ---------- */
 $('calibBtn').onclick=()=>{
   if(S.cur<0) return;
+  setMark(false);
   S.calib={pts:[]}; $('calibBox').classList.add('show');
   $('calibMsg').textContent='Clique nas duas pontas da barra de escala.'; $('calibInput').style.display='none';
   tip.style.display='none';
@@ -609,6 +730,7 @@ $('minD').addEventListener('change',e=>{ S.p.minD=fromU(parseFloat(e.target.valu
 $('maxD').addEventListener('change',e=>{ S.p.maxD=fromU(parseFloat(e.target.value)||1e6); reanalyzeAll(); });
 $('excludeBorder').addEventListener('change',e=>{ S.p.excludeBorder=e.target.checked; reanalyzeAll(); });
 $('invert').addEventListener('change',e=>{ S.p.invert=e.target.checked; reanalyzeAll(); });
+$('nextGroup').addEventListener('input',e=>{ S.nextGroup=e.target.value; });
 
 const drop=$('drop'), fileIn=$('file');
 drop.onclick=()=>fileIn.click();
@@ -620,49 +742,71 @@ document.addEventListener('drop',e=>{ drop.classList.remove('over'); if(e.dataTr
 function setZoom(z){ S.zoom=z; ['zFit','z1','z2'].forEach(id=>$(id).classList.remove('on')); $(z==='fit'?'zFit':z===1?'z1':'z2').classList.add('on'); draw(); }
 $('zFit').onclick=()=>setZoom('fit'); $('z1').onclick=()=>setZoom(1); $('z2').onclick=()=>setZoom(2);
 $('prevBtn').onclick=()=>selectImage(S.cur-1); $('nextBtn').onclick=()=>selectImage(S.cur+1);
-document.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT')return; if(e.key==='ArrowRight')selectImage(S.cur+1); if(e.key==='ArrowLeft')selectImage(S.cur-1); });
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape' && S.mark){ if(S.mark.step===2||S.mark.drag){ S.mark.step=1; S.mark.cap=null; S.mark.drag=null; updateMarkMsg(); draw(); } else setMark(false); return; }
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.key==='ArrowRight')selectImage(S.cur+1); if(e.key==='ArrowLeft')selectImage(S.cur-1);
+});
 window.addEventListener('resize',()=>{ if(S.zoom==='fit') draw(); });
 
 $('tCur').onclick=()=>{S.tableAll=false;$('tCur').classList.add('on');$('tAll').classList.remove('on');renderTable();};
 $('tAll').onclick=()=>{S.tableAll=true;$('tAll').classList.add('on');$('tCur').classList.remove('on');renderTable();};
-$('comma').onchange=()=>{};
 
 /* ---------- lista, tabela, estatísticas ---------- */
 function validCells(im){
   if(!im.res) return [];
   const nb=numbering(im);
-  return im.res.cells.map((c,i)=>({c,i,n:nb.get(i)})).filter(o=>o.c.status==='ok');
+  return allCells(im).map((c,i)=>({c,i,n:nb.get(i)})).filter(o=>o.c.status==='ok');
+}
+function groupsInUse(){
+  const set=new Set(); S.images.forEach(im=>{ const g=(im.group||'').trim(); if(g) set.add(g); });
+  return [...set];
+}
+function renderGroupList(){
+  const gs=groupsInUse();
+  $('groupList').innerHTML=gs.map(g=>`<option value="${esc(g)}">`).join('');
 }
 function renderList(){
-  const ul=$('imglist'); ul.innerHTML='';
+  const ul=$('imglist');
+  if (ul.contains(document.activeElement) && document.activeElement.classList.contains('grp')) return; // não atrapalha quem está digitando
+  ul.innerHTML='';
   S.images.forEach((im,i)=>{
     const li=document.createElement('li'); if(i===S.cur) li.className='cur';
     const ok=validCells(im).filter(o=>!im.excluded.has(o.i)&&o.c.body).length;
-    li.innerHTML=`<span class="nm" title="${im.name}">${im.name}</span><span class="n">${im.err?'erro':im.res?ok+' cél.':'…'}</span>`;
-    li.onclick=()=>selectImage(i);
+    li.innerHTML=`<div class="top"><span class="nm" title="${esc(im.name)}">${esc(im.name)}</span><span class="n">${im.err?'erro':im.res?ok+' cél.':'…'}</span></div>
+      <input class="grp" list="groupList" placeholder="grupo (ex.: cepa, condição)" value="${esc(im.group||'')}">`;
+    li.dataset.i=i;
+    const inp=li.querySelector('input');
+    inp.onchange=()=>{ im.group=inp.value.trim(); renderGroupList(); renderTable(); renderCompare(); };
+    inp.onkeydown=e=>{ if(e.key==='Enter') inp.blur(); };
     ul.appendChild(li);
   });
+  renderGroupList();
 }
+// seleção no pointerdown: acontece antes de um campo perder o foco e redesenhar a lista
+$('imglist').addEventListener('pointerdown',e=>{
+  if(e.target.closest('input')) return;
+  const li=e.target.closest('li'); if(li) selectImage(+li.dataset.i);
+});
 function rowsFor(im){
-  return validCells(im).map(o=>({img:im.name,n:o.n,i:o.i,c:o.c,ex:im.excluded.has(o.i)}));
+  return validCells(im).map(o=>({im,img:im.name,group:groupOf(im),n:o.n,i:o.i,c:o.c,ex:im.excluded.has(o.i)}));
 }
 function renderTable(){
   const u=unit(), thead=$('tbl').tHead, tb=$('tbl').tBodies[0];
-  thead.innerHTML=`<tr><th>Imagem</th><th>Célula</th><th>Diâmetro total (${u})</th><th>Diâmetro do corpo (${u})</th><th>Espessura da cápsula (${u})</th><th>Arredondamento</th><th>Observação</th></tr>`;
+  thead.innerHTML=`<tr><th>Imagem</th><th>Grupo</th><th>Célula</th><th>Diâmetro total (${u})</th><th>Diâmetro do corpo (${u})</th><th>Espessura da cápsula (${u})</th><th>Arredondamento</th><th>Observação</th></tr>`;
   let rows=[];
   if(S.tableAll) S.images.forEach(im=>rows.push(...rowsFor(im)));
   else if(S.cur>=0) rows=rowsFor(S.images[S.cur]);
   $('tableTitle').textContent=S.tableAll?'Medidas · todas as imagens':'Medidas · esta imagem';
-  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${r.img}" class="${r.ex?'ex':''}"><td>${r.img}</td><td>${r.n}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.thick))}</td><td>${fmt(r.c.roundness)}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
-    || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
+  tb.innerHTML=rows.map(r=>`<tr data-i="${r.i}" data-img="${S.images.indexOf(r.im)}" class="${r.ex?'ex':''}"><td>${esc(r.img)}</td><td style="text-align:left">${esc(r.group)}</td><td>${r.n}</td><td>${fmt(toU(r.c.dTot))}</td><td>${fmt(toU(r.c.dBody))}</td><td>${fmt(toU(r.c.thick))}</td><td>${r.c.manual?'—':fmt(r.c.roundness)}</td><td style="text-align:left;color:var(--muted)">${r.ex?'excluída manualmente':r.c.flags.join('; ')}</td></tr>`).join('')
+    || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px">Nenhuma célula ainda.</td></tr>`;
   [...tb.rows].forEach(tr=>{
-    tr.onmouseenter=()=>{ const im=S.images[S.cur]; if(im&&tr.dataset.img===im.name){S.hover=+tr.dataset.i;draw();} };
+    tr.onmouseenter=()=>{ if(+tr.dataset.img===S.cur){S.hover=+tr.dataset.i;draw();} };
     tr.onmouseleave=()=>{ S.hover=-1; draw(); };
   });
 }
 function highlightRow(){
-  const im=S.images[S.cur];
-  [...$('tbl').tBodies[0].rows].forEach(tr=>tr.classList.toggle('hl', !!im && tr.dataset.img===im.name && +tr.dataset.i===S.hover));
+  [...$('tbl').tBodies[0].rows].forEach(tr=>tr.classList.toggle('hl', +tr.dataset.img===S.cur && +tr.dataset.i===S.hover));
 }
 function meanSd(a){ if(!a.length) return [NaN,NaN]; const m=a.reduce((s,v)=>s+v,0)/a.length; const sd=a.length>1?Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)):0; return [m,sd]; }
 function renderStats(){
@@ -674,21 +818,168 @@ function renderStats(){
     `<div class="stat"><div class="lbl">Células válidas</div><div class="val">${all.length}</div><div class="sub">${cur.length} nesta imagem · ${S.images.length} imagem(ns)</div></div>`+
     box('Espessura da cápsula',all,'thick')+box('Diâmetro do corpo',all,'dBody')+box('Diâmetro total',all,'dTot');
 }
-function renderAll(){
-  const im=S.images[S.cur];
-  $('imgTitle').textContent= im ? `${im.name}${im.err?' — erro: '+im.err:''}` : 'Nenhuma imagem';
-  renderList(); draw(); renderTable(); renderStats(); syncUnitInputs();
-}
 
-/* ---------- copiar ---------- */
-$('copyBtn').onclick=async()=>{
-  const comma=$('comma').checked, u=unit();
-  const f=v=>{ if(v==null||!isFinite(v)) return ''; const s=v.toFixed(3); return comma?s.replace('.',','):s; };
-  const lines=[['Imagem','Célula',`Diâmetro total (${u})`,`Diâmetro do corpo (${u})`,`Espessura da cápsula (${u})`,'Arredondamento','Observação'].join('\t')];
-  const imgs=S.tableAll?S.images:(S.cur>=0?[S.images[S.cur]]:[]);
+/* ---------- comparação entre grupos ---------- */
+const METRICS={
+  thick:{label:'Espessura da cápsula',unit:true,get:c=>toU(c.thick)},
+  dBody:{label:'Diâmetro do corpo',unit:true,get:c=>toU(c.dBody)},
+  dTot:{label:'Diâmetro total',unit:true,get:c=>toU(c.dTot)},
+  ratio:{label:'Razão diâmetro total / corpo',unit:false,get:c=>c.dTot/c.dBody}
+};
+function metricLabel(m){ return METRICS[m].label+(METRICS[m].unit?` (${unit()})`:''); }
+function collectGroups(metric){
+  const order=[], map=new Map();
+  S.images.forEach((im,ii)=>{
+    const g=groupOf(im);
+    rowsFor(im).forEach(r=>{
+      if(r.ex||!r.c.body) return;
+      const v=METRICS[metric].get(r.c); if(!isFinite(v)) return;
+      if(!map.has(g)){ map.set(g,[]); order.push(g); }
+      map.get(g).push({v,img:ii,i:r.i,n:r.n,name:im.name});
+    });
+  });
+  // "Sem grupo" vai para o fim
+  order.sort((a,b)=>(a===NO_GROUP)-(b===NO_GROUP));
+  return order.map(g=>({name:g,pts:map.get(g)}));
+}
+function quantile(sorted,q){
+  if(!sorted.length) return NaN;
+  const pos=(sorted.length-1)*q, lo=Math.floor(pos), hi=Math.ceil(pos);
+  return sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo);
+}
+function summary(vals){
+  const s=[...vals].sort((a,b)=>a-b), [m,sd]=meanSd(s);
+  const q1=quantile(s,.25), med=quantile(s,.5), q3=quantile(s,.75), iqr=q3-q1;
+  const wl=s.find(v=>v>=q1-1.5*iqr), wh=[...s].reverse().find(v=>v<=q3+1.5*iqr);
+  return {n:s.length,mean:m,sd,q1,med,q3,wl,wh,min:s[0],max:s[s.length-1]};
+}
+/* Kruskal-Wallis (com 2 grupos equivale ao Mann-Whitney bilateral, aproximação normal) */
+function gammaln(x){ const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
+  let y=x, t=x+5.5; t-=(x+0.5)*Math.log(t); let s=1.000000000190015; for(const v of c) s+=v/++y; return -t+Math.log(2.5066282746310005*s/x); }
+function gammaP(a,x){ // regularizada inferior
+  if(x<=0) return 0;
+  if(x<a+1){ let sum=1/a, del=sum, ap=a; for(let n=0;n<500;n++){ ap++; del*=x/ap; sum+=del; if(Math.abs(del)<Math.abs(sum)*1e-14) break; } return sum*Math.exp(-x+a*Math.log(x)-gammaln(a)); }
+  let b=x+1-a, c=1e300, d=1/b, h=d;
+  for(let i=1;i<500;i++){ const an=-i*(i-a); b+=2; d=an*d+b; if(Math.abs(d)<1e-300)d=1e-300; c=b+an/c; if(Math.abs(c)<1e-300)c=1e-300; d=1/d; const del=d*c; h*=del; if(Math.abs(del-1)<1e-14) break; }
+  return 1-Math.exp(-x+a*Math.log(x)-gammaln(a))*h;
+}
+function kruskal(groups){
+  const all=[]; groups.forEach((g,gi)=>g.forEach(v=>all.push({v,gi})));
+  const N=all.length, k=groups.length;
+  if(k<2||groups.some(g=>g.length<2)) return null;
+  all.sort((a,b)=>a.v-b.v);
+  const R=new Array(k).fill(0); let tie=0;
+  for(let i=0;i<N;){ let j=i; while(j+1<N&&all[j+1].v===all[i].v) j++;
+    const r=(i+j)/2+1, t=j-i+1; tie+=t*t*t-t;
+    for(let q=i;q<=j;q++) R[all[q].gi]+=r; i=j+1; }
+  let H=0; for(let g=0;g<k;g++) H+=R[g]*R[g]/groups[g].length;
+  H=12/(N*(N+1))*H-3*(N+1);
+  const corr=1-tie/(N*N*N-N); if(corr>0) H/=corr;
+  const df=k-1, p=1-gammaP(df/2,H/2);
+  return {H,df,p,test:k===2?'Mann-Whitney':'Kruskal-Wallis'};
+}
+function fmtP(p){ if(!isFinite(p)) return '—'; if(p<0.0001) return '< 0,0001'; return fmt(p,4); }
+function niceMax(v){ if(!(v>0)) return 1; const e=Math.pow(10,Math.floor(Math.log10(v))), f=v/e; return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*e; }
+
+let chartSVG='';
+function renderCompare(){
+  const metric=$('metric').value, groups=collectGroups(metric);
+  const W=900, H=440, ml=70, mr=20, mt=28, mb=70, pw=W-ml-mr, ph=H-mt-mb;
+  const FONT='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
+  const INK='#1d2321', MUTED='#66706c', GRID='#e6e9e7', DOT='#2a78d6';
+  const gth=$('gtbl').tHead, gtb=$('gtbl').tBodies[0];
+  if(!groups.length){
+    chartSVG='';
+    $('chart').innerHTML=`<div style="padding:40px;text-align:center;color:var(--muted)">Ainda não há células medidas. Dê um grupo a cada imagem para comparar.</div>`;
+    $('testline').innerHTML=''; gth.innerHTML=''; gtb.innerHTML=''; return;
+  }
+  const allV=groups.flatMap(g=>g.pts.map(p=>p.v));
+  const ymax=niceMax(Math.max(...allV)*1.05), y=v=>mt+ph-(v/ymax)*ph;
+  const bw=pw/groups.length, boxW=Math.min(70,bw*0.42);
+  let s=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="${FONT}" role="img" aria-label="${esc(METRICS[metric].label)} por grupo">`;
+  s+=`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`;
+  // grade e eixo Y
+  for(let t=0;t<=5;t++){ const v=ymax*t/5, yy=y(v);
+    s+=`<line x1="${ml}" x2="${W-mr}" y1="${yy}" y2="${yy}" stroke="${GRID}" stroke-width="1"/>`;
+    s+=`<text x="${ml-8}" y="${yy+4}" text-anchor="end" font-size="12" fill="${MUTED}">${fmt(v,ymax<5?1:0).replace(/,0$/,'')}</text>`; }
+  s+=`<text transform="translate(18 ${mt+ph/2}) rotate(-90)" text-anchor="middle" font-size="13" fill="${MUTED}">${esc(metricLabel(metric))}</text>`;
+  s+=`<line x1="${ml}" x2="${W-mr}" y1="${mt+ph}" y2="${mt+ph}" stroke="#b9c2be" stroke-width="1"/>`;
+  groups.forEach((g,gi)=>{
+    const cx=ml+bw*(gi+.5), st=summary(g.pts.map(p=>p.v));
+    // haste
+    s+=`<line x1="${cx}" x2="${cx}" y1="${y(st.wh)}" y2="${y(st.q3)}" stroke="${INK}" stroke-width="1.5"/>`;
+    s+=`<line x1="${cx}" x2="${cx}" y1="${y(st.q1)}" y2="${y(st.wl)}" stroke="${INK}" stroke-width="1.5"/>`;
+    s+=`<line x1="${cx-boxW*.22}" x2="${cx+boxW*.22}" y1="${y(st.wh)}" y2="${y(st.wh)}" stroke="${INK}" stroke-width="1.5"/>`;
+    s+=`<line x1="${cx-boxW*.22}" x2="${cx+boxW*.22}" y1="${y(st.wl)}" y2="${y(st.wl)}" stroke="${INK}" stroke-width="1.5"/>`;
+    // caixa
+    s+=`<rect x="${cx-boxW/2}" y="${y(st.q3)}" width="${boxW}" height="${Math.max(1,y(st.q1)-y(st.q3))}" rx="4" fill="#ffffff" fill-opacity="0.6" stroke="${INK}" stroke-width="1.5"/>`;
+    // pontos (dispersão determinística)
+    const spread=Math.min(bw*0.36,boxW*1.1);
+    g.pts.forEach((p,pi)=>{
+      const jit=((Math.sin((pi+1)*12.9898+gi*78.233)*43758.5453)%1+1)%1-0.5;
+      s+=`<circle class="pt" data-g="${gi}" data-p="${pi}" cx="${(cx+jit*spread).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="4" fill="${DOT}" fill-opacity="0.55" stroke="#ffffff" stroke-width="1"/>`;
+    });
+    // mediana por cima dos pontos
+    s+=`<line x1="${cx-boxW/2}" x2="${cx+boxW/2}" y1="${y(st.med)}" y2="${y(st.med)}" stroke="${INK}" stroke-width="2.5"/>`;
+    // rótulos
+    const name=g.name.length>22?g.name.slice(0,21)+'…':g.name;
+    s+=`<text x="${cx}" y="${mt+ph+22}" text-anchor="middle" font-size="13" font-weight="600" fill="${INK}">${esc(name)}</text>`;
+    s+=`<text x="${cx}" y="${mt+ph+40}" text-anchor="middle" font-size="12" fill="${MUTED}">n = ${st.n} · mediana ${fmt(st.med)}</text>`;
+  });
+  s+='</svg>';
+  chartSVG=s;
+  $('chart').innerHTML=s;
+  // dicas e clique nos pontos
+  $('chart').querySelectorAll('.pt').forEach(el=>{
+    const p=groups[+el.dataset.g].pts[+el.dataset.p];
+    el.addEventListener('mousemove',ev=>{ el.setAttribute('r','6'); el.setAttribute('fill-opacity','1');
+      showTip(ev,`<b>${esc(groups[+el.dataset.g].name)}</b><br>${esc(p.name)} · célula ${p.n}<br><span class="k">${esc(METRICS[metric].label)}:</span> <b>${fmt(p.v)}${METRICS[metric].unit?' '+unit():''}</b><br><span class="k" style="font-size:11.5px">clique para abrir a imagem</span>`); });
+    el.addEventListener('mouseleave',()=>{ el.setAttribute('r','4'); el.setAttribute('fill-opacity','0.55'); tip.style.display='none'; });
+    el.addEventListener('click',async()=>{ tip.style.display='none'; await selectImage(p.img); S.hover=p.i; draw(); stage.scrollIntoView({behavior:'smooth',block:'center'}); });
+  });
+  // teste
+  const kw=kruskal(groups.map(g=>g.pts.map(p=>p.v)));
+  if(groups.length<2) $('testline').innerHTML='<span class="k">Com um grupo só não há comparação. Dê nomes de grupo diferentes às imagens.</span>';
+  else if(!kw) $('testline').innerHTML='<span class="k">Cada grupo precisa de pelo menos 2 células para o teste.</span>';
+  else $('testline').innerHTML=`<b>${kw.test}</b> <span class="k">(${kw.test==='Mann-Whitney'?'bilateral, aproximação normal':`H = ${fmt(kw.H)}, gl = ${kw.df}`}):</span> <b>p = ${fmtP(kw.p)}</b> <span class="k">· ${kw.p<0.05?'diferença entre os grupos (p &lt; 0,05)':'sem diferença significativa (p ≥ 0,05)'}${groups.length>2&&kw.p<0.05?' · para saber quais pares diferem, use um teste post-hoc (ex.: Dunn)':''}</span>`;
+  // tabela por grupo
+  const u=METRICS[metric].unit?` (${unit()})`:'';
+  gth.innerHTML=`<tr><th>Grupo</th><th>n células</th><th>Imagens</th><th>Média${u}</th><th>DP</th><th>Mediana</th><th>Q1</th><th>Q3</th><th>Mín.</th><th>Máx.</th></tr>`;
+  gtb.innerHTML=groups.map(g=>{ const st=summary(g.pts.map(p=>p.v)), ni=new Set(g.pts.map(p=>p.img)).size;
+    return `<tr><td>${esc(g.name)}</td><td style="text-align:right">${st.n}</td><td>${ni}</td><td>${fmt(st.mean)}</td><td>${fmt(st.sd)}</td><td>${fmt(st.med)}</td><td>${fmt(st.q1)}</td><td>${fmt(st.q3)}</td><td>${fmt(st.min)}</td><td>${fmt(st.max)}</td></tr>`; }).join('');
+}
+$('metric').onchange=renderCompare;
+
+/* ---------- exportar ---------- */
+function download(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function stamp(){ const d=new Date(); return d.toISOString().slice(0,10); }
+$('dlSvg').onclick=()=>{ if(chartSVG) download(new Blob([chartSVG],{type:'image/svg+xml'}),`grafico-${$('metric').value}-${stamp()}.svg`); };
+$('dlPng').onclick=()=>{
+  if(!chartSVG) return;
+  const img=new Image(), sc=3;
+  img.onload=()=>{ const c=document.createElement('canvas'); c.width=900*sc; c.height=440*sc;
+    const x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,c.width,c.height); x.drawImage(img,0,0,c.width,c.height);
+    c.toBlob(b=>download(b,`grafico-${$('metric').value}-${stamp()}.png`),'image/png'); };
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(chartSVG);
+};
+function tableText(sep,comma,imgs){
+  const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=v.toFixed(3); return comma?s.replace('.',','):s; };
+  const q=v=>{ v=String(v); return sep===';'&&/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  const lines=[['Imagem','Grupo','Célula',`Diâmetro total (${u})`,`Diâmetro do corpo (${u})`,`Espessura da cápsula (${u})`,'Arredondamento','Origem','Observação'].join(sep)];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
-    lines.push([r.img,r.n,f(toU(r.c.dTot)),f(toU(r.c.dBody)),f(toU(r.c.thick)),f(r.c.roundness),r.c.flags.join('; ')].join('\t')); }));
-  const text=lines.join('\n');
+    lines.push([q(r.img),q(r.group),r.n,f(toU(r.c.dTot)),f(toU(r.c.dBody)),f(toU(r.c.thick)),r.c.manual?'':f(r.c.roundness),r.c.manual?'manual':'automática',q(r.c.flags.filter(x=>x!=='marcada à mão').join('; '))].join(sep)); }));
+  return lines;
+}
+$('dlCsv').onclick=()=>{
+  const comma=$('comma').checked, lines=tableText(comma?';':',',comma,S.images);
+  download(new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),`medidas-capsula-${stamp()}.csv`);
+};
+$('copyBtn').onclick=async()=>{
+  const imgs=S.tableAll?S.images:(S.cur>=0?[S.images[S.cur]]:[]);
+  const lines=tableText('\t',$('comma').checked,imgs), text=lines.join('\n');
   try{ await navigator.clipboard.writeText(text); $('copied').textContent=`${lines.length-1} linhas copiadas`; }
   catch(e){
     const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
@@ -698,6 +989,11 @@ $('copyBtn').onclick=async()=>{
   setTimeout(()=>$('copied').textContent='',3500);
 };
 
+function renderAll(){
+  const im=S.images[S.cur];
+  $('imgTitle').textContent= im ? `${im.name}${im.err?' — erro: '+im.err:''}` : 'Nenhuma imagem';
+  renderList(); draw(); renderTable(); renderStats(); syncUnitInputs(); renderCompare();
+}
 renderAll();
 </script>
 </body>
