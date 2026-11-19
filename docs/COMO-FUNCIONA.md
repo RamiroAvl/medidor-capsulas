@@ -16,8 +16,7 @@ Este documento explica o site em linguagem simples e com detalhes técnicos sufi
 10. [Validação](#10-validação)
 11. [Limitações conhecidas](#11-limitações-conhecidas)
 12. [Mapa do código](#12-mapa-do-código)
-13. [Texto sugerido para a seção de métodos](#13-texto-sugerido-para-a-seção-de-métodos)
-14. [Glossário](#14-glossário)
+13. [Glossário](#13-glossário)
 
 ---
 
@@ -189,13 +188,7 @@ Todo o site está em `index.html`, dividido em dois blocos `<script>`:
 
 Os parâmetros principais estão no objeto `S.p`, no início do segundo script. São eles o rigor (`sens`), os tamanhos mínimo e máximo (`minD`, `maxD`, em pixels), a inclusão de brotos, as células na borda e o critério de diâmetro (`metric`).
 
-## 13. Texto sugerido para a seção de métodos
-
-> *Adapte ao estilo da revista e confira os valores usados no estudo.*
-
-As medidas de cápsula foram obtidas com uma ferramenta própria baseada em navegador (Medidor de cápsulas, https://github.com/RamiroAvl/medidor-capsulas), desenvolvida com assistência de inteligência artificial (Claude, Anthropic). Em cada imagem de campo claro com tinta nanquim, o fundo foi estimado por média local robusta e subtraído. O ruído foi estimado pelo desvio mediano absoluto, e foram considerados objetos os pixels com intensidade acima de 4 vezes esse ruído. As células encostadas foram separadas por watershed sobre a transformada de distância. Para cada célula, 90 perfis radiais de intensidade foram usados para localizar a borda externa da cápsula (meia altura entre o máximo da célula e o fundo local) e a borda da célula (mínimo de intensidade correspondente à parede celular), com resolução subpixel. Elipses foram ajustadas a cada conjunto de pontos por mínimos quadrados, com rejeição iterativa de pontos discrepantes. Foram excluídos brotos, células em contato com a borda da imagem e células com ajuste de baixa qualidade. Os diâmetros foram expressos como [diâmetro equivalente à área da elipse / eixo maior / eixo menor], com calibração de [X] µm por pixel. Todas as detecções foram inspecionadas visualmente e, quando necessário, corrigidas manualmente. A espessura da cápsula foi calculada como a metade da diferença entre o diâmetro cápsula + célula e o diâmetro da célula, e os volumes como esferas, V = (4π/3)·(d/2)³. A ferramenta foi validada contra medições manuais no ImageJ [resultado da validação].
-
-## 14. Glossário
+## 13. Glossário
 
 - **Máscara:** imagem em preto e branco que marca quais pixels pertencem a objetos.
 - **Limiar:** valor de corte. Acima dele, o pixel é considerado objeto.
