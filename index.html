@@ -502,7 +502,7 @@ function analyzeV2(gray,w,h,p){
       }
     }
     const cap=fitRobust(outPts), cel=fitRobust(inPts);
-    const cell={cx,cy,seg:id,comp:S.comp,area:n,flags:[],status:'ok',auto2:true,cap,cel,
+    const cell={cx,cy,seg:id,comp:S.comp,area:n,flags:[],status:'ok',auto2:true,cap,cel,dbg:p.debug?{outPts,inPts,center:[cx,cy]}:undefined,
       coverage:outPts.length/NR, contact:contact/NR, segArea:n};
     if(!cap){ cell.status='rejected'; cell.flags.push('contorno da cápsula não encontrado'); }
     else if(cap.n/NR<0.4){ cell.status='rejected'; cell.flags.push('contorno incompleto'); }
