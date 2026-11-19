@@ -1333,14 +1333,34 @@ $('dlPng').onclick=()=>{
     c.toBlob(b=>download(b,`grafico-${$('metric').value}-${stamp()}.png`),'image/png'); };
   img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(chartSVG);
 };
-function tableText(sep,comma,imgs){
-  const u=unit(), f=v=>{ if(v==null||!isFinite(v)) return ''; const s=(Math.round(v*1000)/1000).toFixed(3); return comma?s.replace('.',','):s; };
+/* dados da tabela: cabeçalho + linhas de células {t:'s'|'n', v} */
+function tableData(imgs){
+  const u=unit(), r3=v=>(v==null||!isFinite(v))?null:Math.round(v*1000)/1000;
   const cols=selCols(), gm=groupMeans(), seen=new Set();
-  const lines=[cols.map(c=>c.h(u)).join(sep)];
+  const head=cols.map(c=>c.h(u)), rows=[];
   imgs.forEach(im=>rowsFor(im).forEach(r=>{ if(r.ex||!r.c.body) return;
     const first=!seen.has(r.group); seen.add(r.group);
-    lines.push(cols.map(c=> c.txt?c.txt(r) : c.group?(first&&gm.has(r.group)?f(gm.get(r.group)):'') : c.int?String(c.num(r)) : f(c.num(r))).join(sep)); }));
-  return lines;
+    rows.push(cols.map(c=> c.txt?{t:'s',v:c.txt(r)}
+      : c.group?{t:'n',v:first&&gm.has(r.group)?r3(gm.get(r.group)):null}
+      : c.int?{t:'n',v:c.num(r),int:true} : {t:'n',v:r3(c.num(r))})); }));
+  return {head,rows};
+}
+function tableText(sep,comma,imgs){
+  const {head,rows}=tableData(imgs);
+  const f=c=> c.t==='s'?c.v : c.v==null?'' : c.int?String(c.v) : (comma?c.v.toFixed(3).replace('.',','):c.v.toFixed(3));
+  return [head.join(sep)].concat(rows.map(r=>r.map(f).join(sep)));
+}
+/* HTML para a área de transferência: o Excel cola uma célula por valor e lê o número
+   em x:num (independe de vírgula/ponto e da configuração "Texto para Colunas") */
+function tableHTML(imgs,comma){
+  const {head,rows}=tableData(imgs);
+  const td=c=>{ if(c.t==='s') return `<td style="mso-number-format:'\\@'">${esc(c.v)}</td>`;
+    if(c.v==null) return '<td></td>';
+    const shown=c.int?String(c.v):(comma?c.v.toFixed(3).replace('.',','):c.v.toFixed(3));
+    return `<td x:num="${c.v}" style="mso-number-format:'${c.int?'0':'0.000'}'">${shown}</td>`; };
+  return `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table>`
+    + '<tr>'+head.map(h=>`<th>${esc(h)}</th>`).join('')+'</tr>'
+    + rows.map(r=>'<tr>'+r.map(td).join('')+'</tr>').join('') + '</table></body></html>';
 }
 $('dlCsv2').onclick=()=>$('dlCsv').click();
 function safeSheetName(n,used){
@@ -1403,16 +1423,25 @@ $('dlCsv').onclick=()=>{
   download(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`volume-capsular-${stamp()}.xlsx`);
 };
 $('copyBtn').onclick=async()=>{
-  const imgs=S.tableAll?S.images:(S.cur>=0?[S.images[S.cur]]:[]);
-  const lines=tableText('\t',$('comma').checked,imgs), text=lines.join('\n');
-  try{ await navigator.clipboard.writeText(text); $('copied').textContent=`${lines.length-1} linhas copiadas`; }
-  catch(e){
-    const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
-    let ok=false; try{ ok=document.execCommand('copy'); }catch(_){}
-    ta.remove(); $('copied').textContent= ok?`${lines.length-1} linhas copiadas`:'não foi possível copiar';
+  const imgs=S.tableAll?S.images:(S.cur>=0?[S.images[S.cur]]:[]), comma=$('comma').checked;
+  const lines=tableText('\t',comma,imgs), text=lines.join('\n'), html=tableHTML(imgs,comma), n=lines.length-1;
+  let ok=false;
+  try{
+    if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+      await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]);
+      ok=true;
+    }
+  }catch(e){}
+  if(!ok){ // alternativa: copia por um evento de cópia, levando HTML e texto juntos
+    const h=e=>{ e.preventDefault(); e.clipboardData.setData('text/html',html); e.clipboardData.setData('text/plain',text); ok=true; };
+    document.addEventListener('copy',h,{once:true});
+    try{ document.execCommand('copy'); }catch(_){}
+    document.removeEventListener('copy',h);
   }
+  $('copied').textContent= ok?`${n} linhas copiadas`:'não foi possível copiar';
   setTimeout(()=>$('copied').textContent='',3500);
 };
+
 
 function renderAll(){
   const im=S.images[S.cur];
