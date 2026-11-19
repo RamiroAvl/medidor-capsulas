@@ -696,7 +696,7 @@ function allCells(im){
     const o=Object.assign({},c,{dTot,dBody,thick:dBody!=null?(dTot-dBody)/2:null,roundness:c.cap.b/c.cap.a,body:c.cel?{cx:c.cel.cx,cy:c.cel.cy,d:dBody}:null});
     let phi=null, nd=1e9;
     im.res.cells.forEach(o2=>{ if(o2===c||!o2.cap||o2.comp!==c.comp) return; const d=Math.hypot(o2.cap.cx-c.cap.cx,o2.cap.cy-c.cap.cy); if(d<nd){nd=d;phi=Math.atan2(o2.cap.cy-c.cap.cy,o2.cap.cx-c.cap.cx);} });
-    if(c.cel) o.lines={c:ellipseLine(c.cap,k,phi), b:ellipseLine(c.cel,k,phi)};
+    if(c.cel){ const lc=ellipseLine(c.cap,k,phi); o.lines={c:lc, b:overlayLine(lc,c.cel,dBody)}; }
     // célula substituída por uma medida à mão / ajustada no mesmo lugar
     if(im.manual.some(m=>Math.hypot(m.cx-c.cap.cx,m.cy-c.cap.cy)<c.cap.b*0.8)) o.status='replaced';
     return o;
@@ -726,7 +726,13 @@ function ellipseLine(E,k,phi){
     // com célula vizinha encostada: escolhe a direção mais perpendicular a ela
     th = phi==null ? c1 : (Math.abs(Math.sin(c1-phi))>=Math.abs(Math.sin(c2-phi)) ? c1 : c2); }
   const r=ellipseRadius(E,th), dx=Math.cos(th)*r, dy=Math.sin(th)*r;
-  return {x1:E.cx-dx,y1:E.cy-dy,x2:E.cx+dx,y2:E.cy+dy};
+  return {x1:E.cx-dx,y1:E.cy-dy,x2:E.cx+dx,y2:E.cy+dy,th};
+}
+/* linha da célula sobreposta à da cápsula: mesma direção e mesmo eixo, com o comprimento da medida da célula */
+function overlayLine(capL,cel,len){
+  const th=capL.th, ux=Math.cos(th), uy=Math.sin(th), mx=(capL.x1+capL.x2)/2, my=(capL.y1+capL.y2)/2;
+  const t=(cel.cx-mx)*ux+(cel.cy-my)*uy, cx=mx+t*ux, cy=my+t*uy, h=len/2;
+  return {x1:cx-ux*h,y1:cy-uy*h,x2:cx+ux*h,y2:cy+uy*h};
 }
 function groupOf(im){ return (im.group||'').trim()||NO_GROUP; }
 
