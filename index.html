@@ -698,7 +698,7 @@ function allCells(im){
     im.res.cells.forEach(o2=>{ if(o2===c||!o2.cap||o2.comp!==c.comp) return; const d=Math.hypot(o2.cap.cx-c.cap.cx,o2.cap.cy-c.cap.cy); if(d<nd){nd=d;phi=Math.atan2(o2.cap.cy-c.cap.cy,o2.cap.cx-c.cap.cx);} });
     if(c.cel){ const lc=ellipseLine(c.cap,k,phi); o.lines={c:lc, b:overlayLine(lc,c.cel,dBody)}; }
     // célula substituída por uma medida à mão / ajustada no mesmo lugar
-    if(im.manual.some(m=>Math.hypot(m.cx-c.cap.cx,m.cy-c.cap.cy)<c.cap.b*0.8)) o.status='replaced';
+    if(im.manual.some(m=>replacesAuto(m,c))) o.status='replaced';
     return o;
   });
   return auto.concat(man);
@@ -711,12 +711,19 @@ function numbering(im){
     if(c.status==='ok') m.set(i,++n);
     else if(c.status==='replaced'){
       let best=-1, bd=1e9;
-      im.manual.forEach((mm,j)=>{ if(used.has(j)) return; const d=Math.hypot(mm.cx-c.cap.cx,mm.cy-c.cap.cy); if(d<bd){bd=d;best=j;} });
+      im.manual.forEach((mm,j)=>{ if(used.has(j)||!replacesAuto(mm,c)) return; const s=mm.src||{x:mm.cx,y:mm.cy}, d=Math.hypot(s.x-c.cap.cx,s.y-c.cap.cy); if(d<bd){bd=d;best=j;} });
       if(best>=0){ used.add(best); m.set(nA+best,++n); }
     }
   });
   im.manual.forEach((mm,j)=>{ if(!used.has(j)) m.set(nA+j,++n); });
   return m;
+}
+/* uma medida à mão substitui a célula automática c?
+   - ajustada a partir de uma automática: pela célula de origem (não importa para onde as linhas foram arrastadas)
+   - medida do zero com linhas: pelo meio da linha da cápsula, perto do centro */
+function replacesAuto(m,c){
+  if(m.src) return Math.hypot(m.src.x-c.cap.cx,m.src.y-c.cap.cy)<Math.max(2,c.cap.b*0.5);
+  return Math.hypot(m.cx-c.cap.cx,m.cy-c.cap.cy)<c.cap.b*0.8;
 }
 /* linha de borda a borda sobre a elipse ajustada, com o comprimento da medida escolhida */
 function ellipseLine(E,k,phi){
@@ -885,7 +892,7 @@ function hitEndpoint(x,y){
 function beginEdit(h){
   if(h.ci!=null && !h.m){
     const im=S.images[S.cur], c=allCells(im)[h.ci];
-    const m={lines:{b:{...c.lines.b},c:{...c.lines.c}}, fromAuto:true, ell:{cap:c.cap,cel:c.cel}};
+    const m={lines:{b:{...c.lines.b},c:{...c.lines.c}}, fromAuto:true, ell:{cap:c.cap,cel:c.cel}, src:{x:c.cap.cx,y:c.cap.cy}};
     recompute(m); im.manual.push(m);
     h={L:m.lines[h.which], e:h.e, m};
   }
